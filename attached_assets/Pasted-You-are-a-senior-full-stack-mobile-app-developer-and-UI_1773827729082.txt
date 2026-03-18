@@ -1,0 +1,276 @@
+You are a senior full-stack mobile app developer and UI/UX designer.
+
+Redesign and rebuild the existing app “GMS Complaints Box” into a production-ready, modern, multi-tenant mobile application using React Native (Expo) and Supabase.
+
+The app is a Manpower Complaint & Resolution System with 3 roles:
+
+* Client
+* Supervisor
+* Founder (Admin)
+
+IMPORTANT:
+
+* Focus heavily on UI/UX redesign (modern, premium, clean)
+* Ensure full working backend using Supabase
+* Code must be modular, scalable, and exportable to Antigravity
+
+---
+
+🔧 TECH STACK
+
+Frontend:
+
+* React Native (Expo)
+* React Navigation (Stack + Bottom Tabs)
+* Zustand or Context API
+
+Backend (MANDATORY):
+
+* Supabase:
+
+  * Authentication (Email + OTP or Magic Link)
+  * Database (PostgreSQL)
+  * Storage (image/video uploads)
+  * Realtime subscriptions (for live updates)
+
+---
+
+🧠 CORE SYSTEM (MULTI-TENANT)
+
+* Each company has isolated data
+* Every table must include company_id
+* Users only access their company data
+
+---
+
+🗂 DATABASE SCHEMA (SUPABASE)
+
+companies
+
+* id (uuid)
+* name
+
+users
+
+* id (uuid)
+* email
+* role (client, supervisor, founder)
+* company_id
+
+sites
+
+* id (uuid)
+* name
+* company_id
+* assigned_supervisor_id
+
+complaints
+
+* id (uuid)
+* company_id
+* site_id
+* client_id
+* supervisor_id
+* status (pending, in_progress, resolved)
+* before_media_url
+* after_media_url
+* description
+* created_at
+* resolved_at
+
+---
+
+🔐 AUTHENTICATION FLOW
+
+* Use Supabase Auth (email-based login)
+* Magic link OR OTP login
+* On login:
+
+  * Fetch user role + company_id
+* Redirect user to correct dashboard
+* Maintain session
+
+---
+
+🎨 COMPLETE UI REDESIGN (VERY IMPORTANT)
+
+Design style:
+
+* Premium SaaS feel
+* Minimal + clean
+* Dark theme (navy/black gradient)
+
+Colors:
+
+* Primary: #0B1F3A
+* Secondary: #142A4A
+* Accent:
+
+  * Red (#EF4444) → Pending
+  * Yellow (#F59E0B) → In Progress
+  * Green (#22C55E) → Resolved
+
+UI Principles:
+
+* Card-based layout
+* Rounded corners (16px+)
+* Soft shadows
+* Large touch-friendly buttons
+* Smooth animations (optional: Reanimated)
+
+---
+
+📱 LOGIN + ONBOARDING
+
+* Logo + app name
+* Email input
+* Button: “Send Magic Link”
+* Clean success state
+
+---
+
+🏢 CLIENT DASHBOARD (REDESIGNED)
+
+HOME:
+
+* Company name + Site selector (dropdown)
+* Large “Raise Complaint” floating button
+* Stats cards
+* Recent complaints
+
+RAISE COMPLAINT:
+
+* Camera-first UI
+* Upload image/video
+* Description
+* Submit
+
+COMPLAINT DETAIL:
+
+* BEFORE vs AFTER layout (visual comparison)
+* Timeline status
+* Resolution time
+
+---
+
+👷 SUPERVISOR DASHBOARD (REDESIGNED)
+
+DASHBOARD:
+
+* Today’s tasks
+* Urgent complaints card
+
+TASKS:
+
+* Tabs: Pending / In Progress / Completed
+* Clean list UI
+
+TASK DETAIL:
+
+* BEFORE media
+* Start Work button
+* Upload proof (camera/video)
+* Mark Resolved
+
+---
+
+🧑‍💼 FOUNDER DASHBOARD (MOST IMPORTANT)
+
+OVERVIEW:
+
+* KPI cards
+* Site health indicators
+* Alerts
+
+ALL COMPLAINTS:
+
+* Filters (site, status, date)
+* Before/After preview
+
+---
+
+🔥 NEW FEATURE (CRITICAL)
+
+SUPERVISOR ASSIGNMENT SYSTEM
+
+Founder must be able to:
+
+1. View all sites
+2. Assign supervisor to each site using email
+
+FLOW:
+
+* Founder selects site
+* Inputs supervisor email
+* If supervisor exists → assign
+* If not → invite user (create account with role supervisor)
+
+Update sites table:
+
+* assigned_supervisor_id
+
+Only assigned supervisor sees complaints for that site
+
+---
+
+🔔 REALTIME FEATURES
+
+* When complaint created → supervisor sees instantly
+* When resolved → client sees update instantly
+
+Use Supabase Realtime subscriptions
+
+---
+
+📸 MEDIA HANDLING
+
+* Upload images/videos to Supabase Storage
+* Optimize/compress before upload
+* Store public URLs in DB
+
+---
+
+📁 FOLDER STRUCTURE
+
+* /screens
+* /components
+* /navigation
+* /services/supabase
+* /store
+* /hooks
+* /utils
+
+---
+
+⚡ PERFORMANCE
+
+* Lazy loading lists
+* Skeleton loaders
+* Error states
+* Retry upload support
+
+---
+
+🔐 SECURITY (IMPORTANT)
+
+* Use Row Level Security (RLS) in Supabase
+* Users can only access:
+  WHERE company_id = auth.user().company_id
+
+---
+
+🚀 OUTPUT REQUIRED
+
+1. Full working React Native app
+2. Supabase schema + SQL
+3. Auth implementation
+4. Role-based navigation
+5. Supervisor assignment feature
+6. Clean modern UI across all screens
+7. Sample test data
+
+---
+
+GOAL:
+
+Build a production-ready SaaS-level mobile app that feels premium, fast, and scalable.

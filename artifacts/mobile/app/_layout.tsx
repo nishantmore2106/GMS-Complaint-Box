@@ -27,34 +27,11 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen
         name="complaint/[id]"
-        options={{
-          headerShown: true,
-          headerTitle: "Complaint Details",
-          headerBackTitle: "Back",
-          headerStyle: { backgroundColor: "#F4F6FB" },
-          headerTitleStyle: {
-            fontFamily: "Inter_600SemiBold",
-            color: "#0B1F3A",
-            fontSize: 16,
-          },
-          headerTintColor: "#2A6FFF",
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="complaint/new"
-        options={{
-          headerShown: true,
-          headerTitle: "New Complaint",
-          headerBackTitle: "Back",
-          presentation: "modal",
-          headerStyle: { backgroundColor: "#F4F6FB" },
-          headerTitleStyle: {
-            fontFamily: "Inter_600SemiBold",
-            color: "#0B1F3A",
-            fontSize: 16,
-          },
-          headerTintColor: "#2A6FFF",
-        }}
+        options={{ headerShown: false, presentation: "modal" }}
       />
     </Stack>
   );

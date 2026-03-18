@@ -15,40 +15,30 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
 
-interface MenuItemProps {
+function MenuItem({
+  icon,
+  label,
+  value,
+  onPress,
+  danger,
+}: {
   icon: React.ComponentProps<typeof Feather>["name"];
   label: string;
   value?: string;
   onPress?: () => void;
   danger?: boolean;
-}
-
-function MenuItem({ icon, label, value, onPress, danger }: MenuItemProps) {
+}) {
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.menuItem,
-        pressed && styles.menuItemPressed,
-      ]}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={onPress}
     >
-      <View
-        style={[
-          styles.menuIconWrap,
-          { backgroundColor: danger ? Colors.danger + "15" : Colors.accent + "15" },
-        ]}
-      >
-        <Feather
-          name={icon}
-          size={18}
-          color={danger ? Colors.danger : Colors.accent}
-        />
+      <View style={[styles.rowIcon, { backgroundColor: danger ? Colors.pendingBg : Colors.primaryMuted }]}>
+        <Feather name={icon} size={16} color={danger ? Colors.pending : Colors.accent} />
       </View>
-      <Text style={[styles.menuLabel, danger && { color: Colors.danger }]}>
-        {label}
-      </Text>
-      {value && <Text style={styles.menuValue}>{value}</Text>}
-      {!danger && <Feather name="chevron-right" size={16} color={Colors.textMuted} />}
+      <Text style={[styles.rowLabel, danger && { color: Colors.pending }]}>{label}</Text>
+      {value && <Text style={styles.rowValue}>{value}</Text>}
+      {!danger && <Feather name="chevron-right" size={15} color={Colors.textMuted} />}
     </Pressable>
   );
 }
@@ -56,30 +46,21 @@ function MenuItem({ icon, label, value, onPress, danger }: MenuItemProps) {
 export default function ProfileScreen() {
   const { currentUser, logout, getCompanyById } = useApp();
   const insets = useSafeAreaInsets();
-
   const company = getCompanyById(currentUser?.companyId ?? "");
 
-  const roleLabel =
-    currentUser?.role === "founder"
-      ? "Founder"
-      : currentUser?.role === "client"
-      ? "Client"
-      : "Supervisor";
+  const roleLabels = { founder: "Founder", client: "Client", supervisor: "Supervisor" };
+  const roleColors = { founder: Colors.primary, client: Colors.success, supervisor: Colors.warning };
+  const role = currentUser?.role ?? "client";
+  const roleLabel = roleLabels[role];
+  const roleColor = roleColors[role];
 
-  const roleColor =
-    currentUser?.role === "founder"
-      ? Colors.accent
-      : currentUser?.role === "client"
-      ? Colors.success
-      : Colors.warning;
+  const initials = currentUser?.name?.split(" ").map((n) => n[0]).join("") ?? "?";
 
   const handleLogout = () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Sign Out",
-        style: "destructive",
-        onPress: async () => {
+        text: "Sign Out", style: "destructive", onPress: async () => {
           await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           await logout();
           router.replace("/");
@@ -90,204 +71,89 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView
-      style={styles.scroll}
+      style={styles.root}
       contentContainerStyle={[
-        styles.container,
-        {
-          paddingTop:
-            Platform.OS === "web" ? insets.top + 67 : insets.top + 16,
-          paddingBottom: Platform.OS === "web" ? 120 : 120,
-        },
+        styles.scroll,
+        { paddingTop: Platform.OS === "web" ? insets.top + 67 : insets.top + 16, paddingBottom: 120 },
       ]}
       showsVerticalScrollIndicator={false}
     >
       <Text style={styles.title}>Profile</Text>
 
-      <View style={styles.profileCard}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {currentUser?.name?.charAt(0) ?? "?"}
-          </Text>
+      <View style={styles.heroCard}>
+        <View style={[styles.avatar, { backgroundColor: roleColor + "30" }]}>
+          <Text style={[styles.avatarText, { color: roleColor }]}>{initials}</Text>
         </View>
-        <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{currentUser?.name}</Text>
-          <View style={[styles.rolePill, { backgroundColor: roleColor + "20" }]}>
+        <View style={styles.heroInfo}>
+          <Text style={styles.heroName}>{currentUser?.name}</Text>
+          <View style={[styles.rolePill, { backgroundColor: roleColor + "22" }]}>
+            <View style={[styles.roleDot, { backgroundColor: roleColor }]} />
             <Text style={[styles.roleText, { color: roleColor }]}>{roleLabel}</Text>
           </View>
         </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account</Text>
-        <View style={styles.menuCard}>
-          <MenuItem
-            icon="phone"
-            label="Phone"
-            value={currentUser?.phone}
-          />
-          <View style={styles.divider} />
-          <MenuItem
-            icon="briefcase"
-            label="Company"
-            value={company?.name}
-          />
-          <View style={styles.divider} />
-          <MenuItem
-            icon="shield"
-            label="Role"
-            value={roleLabel}
-          />
+        <View style={[styles.idBadge]}>
+          <Text style={styles.idText}>ID {currentUser?.phone}</Text>
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>General</Text>
-        <View style={styles.menuCard}>
-          <MenuItem
-            icon="info"
-            label="App Version"
-            value="1.0.0"
-          />
+        <Text style={styles.sectionLabel}>ACCOUNT DETAILS</Text>
+        <View style={styles.card}>
+          <MenuItem icon="phone" label="Employee ID" value={currentUser?.phone} />
           <View style={styles.divider} />
-          <MenuItem
-            icon="help-circle"
-            label="Help & Support"
-            onPress={() => {}}
-          />
+          <MenuItem icon="briefcase" label="Company" value={company?.name} />
+          <View style={styles.divider} />
+          <MenuItem icon="shield" label="Access Role" value={roleLabel} />
         </View>
       </View>
 
       <View style={styles.section}>
-        <View style={styles.menuCard}>
-          <MenuItem
-            icon="log-out"
-            label="Sign Out"
-            onPress={handleLogout}
-            danger
-          />
+        <Text style={styles.sectionLabel}>APP</Text>
+        <View style={styles.card}>
+          <MenuItem icon="info" label="Version" value="2.0.0" />
+          <View style={styles.divider} />
+          <MenuItem icon="help-circle" label="Help & Support" onPress={() => {}} />
+          <View style={styles.divider} />
+          <MenuItem icon="file-text" label="Privacy Policy" onPress={() => {}} />
         </View>
       </View>
 
-      <Text style={styles.footerText}>
-        GMS Complaints Box · Multi-Tenant Edition
-      </Text>
+      <View style={styles.section}>
+        <View style={styles.card}>
+          <MenuItem icon="log-out" label="Sign Out" onPress={handleLogout} danger />
+        </View>
+      </View>
+
+      <Text style={styles.footer}>GMS Complaints Box · v2.0 · Multi-Tenant Edition</Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-    backgroundColor: Colors.surfaceSecondary,
+  root: { flex: 1, backgroundColor: Colors.bg },
+  scroll: { paddingHorizontal: 16, gap: 20 },
+  title: { fontSize: 24, fontFamily: "Inter_700Bold", color: Colors.text },
+  heroCard: {
+    backgroundColor: Colors.surface, borderRadius: 20, padding: 20, borderWidth: 1,
+    borderColor: Colors.surfaceBorder, flexDirection: "row", alignItems: "center", gap: 14,
   },
-  container: {
-    paddingHorizontal: 16,
-    gap: 20,
-  },
-  title: {
-    fontSize: 26,
-    fontFamily: "Inter_700Bold",
-    color: Colors.textPrimary,
-  },
-  profileCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    backgroundColor: Colors.surface,
-    borderRadius: 18,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: Colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: {
-    fontSize: 26,
-    fontFamily: "Inter_700Bold",
-    color: Colors.white,
-  },
-  profileInfo: {
-    flex: 1,
-    gap: 6,
-  },
-  profileName: {
-    fontSize: 20,
-    fontFamily: "Inter_700Bold",
-    color: Colors.textPrimary,
-  },
-  rolePill: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 100,
-  },
-  roleText: {
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-  },
-  section: {
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    paddingHorizontal: 4,
-  },
-  menuCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: "hidden",
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-  },
-  menuItemPressed: {
-    backgroundColor: Colors.surfaceSecondary,
-  },
-  menuIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  menuLabel: {
-    flex: 1,
-    fontSize: 15,
-    fontFamily: "Inter_500Medium",
-    color: Colors.textPrimary,
-  },
-  menuValue: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-    maxWidth: 140,
-    textAlign: "right",
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border,
-    marginHorizontal: 16,
-  },
-  footerText: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: Colors.textMuted,
-    textAlign: "center",
-  },
+  avatar: { width: 56, height: 56, borderRadius: 28, justifyContent: "center", alignItems: "center" },
+  avatarText: { fontSize: 22, fontFamily: "Inter_700Bold" },
+  heroInfo: { flex: 1, gap: 6 },
+  heroName: { fontSize: 18, fontFamily: "Inter_700Bold", color: Colors.text },
+  rolePill: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", paddingHorizontal: 9, paddingVertical: 3, borderRadius: 100 },
+  roleDot: { width: 5, height: 5, borderRadius: 3 },
+  roleText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  idBadge: { backgroundColor: Colors.surfaceElevated, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  idText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: Colors.textMuted },
+  section: { gap: 8 },
+  sectionLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: Colors.textMuted, letterSpacing: 1.2, paddingHorizontal: 4 },
+  card: { backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, overflow: "hidden" },
+  row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
+  rowPressed: { backgroundColor: Colors.surfaceElevated },
+  rowIcon: { width: 34, height: 34, borderRadius: 10, justifyContent: "center", alignItems: "center" },
+  rowLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium", color: Colors.text },
+  rowValue: { fontSize: 13, fontFamily: "Inter_400Regular", color: Colors.textMuted, maxWidth: 130, textAlign: "right" },
+  divider: { height: 1, backgroundColor: Colors.surfaceBorder, marginHorizontal: 16 },
+  footer: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.textMuted, textAlign: "center" },
 });
