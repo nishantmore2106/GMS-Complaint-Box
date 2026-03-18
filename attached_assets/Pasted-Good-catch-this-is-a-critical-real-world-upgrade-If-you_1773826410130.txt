@@ -1,0 +1,409 @@
+Good catch — this is a **critical real-world upgrade**.
+If you don’t design for **multiple companies from day 1**, your app will break when you scale.
+
+Let’s fix this properly 👇
+
+---
+
+# 🧠 NEW CORE CONCEPT (Multi-Company System)
+
+You are not building a simple app anymore.
+
+👉 You are building a **Multi-Tenant SaaS System**
+
+## 💡 Meaning:
+
+* Each company = separate data
+* No mixing of complaints between companies
+* One app → multiple companies
+
+---
+
+# 🏗️ NEW DATA STRUCTURE (VERY IMPORTANT)
+
+```js
+companies/
+  id
+  name
+
+users/
+  id
+  phone
+  role (client/supervisor/founder)
+  companyId
+
+sites/
+  id
+  name
+  companyId
+  clientId
+
+complaints/
+  id
+  companyId   // 🔥 IMPORTANT
+  siteId
+  clientId
+  supervisorId
+  status
+  beforeMediaUrl
+  afterMediaUrl
+  description
+  createdAt
+  resolvedAt
+```
+
+👉 EVERYTHING must be linked to `companyId`
+
+---
+
+# 👥 UPDATED USER LOGIC
+
+## 🧑‍💼 Founder
+
+* Can see ONLY their company data
+
+## 🏢 Client
+
+* Can raise complaints ONLY for their company sites
+
+## 👷 Supervisor
+
+* Can see ONLY assigned company complaints
+
+---
+
+# 🔐 LOGIN FLOW (UPDATED)
+
+### Step 1:
+
+Enter phone number
+
+### Step 2:
+
+System checks:
+
+* If user exists → auto company + role
+* If new user → assign company manually or via admin
+
+👉 No random access allowed
+
+---
+
+# 📱 UPDATED DASHBOARDS
+
+---
+
+# 🏢 CLIENT DASHBOARD (UPDATED)
+
+## 🆕 Add:
+
+### 📍 Company + Site Context
+
+#### Header:
+
+* Company Name
+* Site Name (dropdown if multiple)
+
+---
+
+## 🔒 Restriction:
+
+* Can only see complaints from:
+  👉 their company
+  👉 their site
+
+---
+
+---
+
+# 👷 SUPERVISOR DASHBOARD (UPDATED)
+
+## 🆕 Add:
+
+### 📍 Company Context
+
+#### Header:
+
+* Company Name
+* Assigned Sites
+
+---
+
+## 🔒 Restriction:
+
+* Only show complaints where:
+  `companyId == user.companyId`
+
+---
+
+---
+
+# 🧑‍💼 FOUNDER DASHBOARD (UPDATED)
+
+## 🆕 MOST IMPORTANT CHANGE
+
+### 🏢 Multi-Company View
+
+If you manage multiple companies:
+
+### Add:
+
+👉 Company Switcher (Top Dropdown)
+
+* Company A
+* Company B
+
+---
+
+## 📊 Everything updates based on selected company:
+
+* KPIs
+* Complaints
+* Analytics
+
+---
+
+## 🔥 Optional (Advanced):
+
+* Global view (all companies combined)
+
+---
+
+# 📋 ALL COMPLAINTS (UPDATED)
+
+Each complaint card shows:
+
+* Company Name 🏢
+* Site
+* Before/After
+* Supervisor
+
+---
+
+# 🔔 NOTIFICATIONS (UPDATED)
+
+* Trigger based on companyId
+* No cross-company notifications
+
+---
+
+# ⚠️ SECURITY RULE (VERY IMPORTANT)
+
+👉 Firestore rules must enforce:
+
+* Users can ONLY read/write their company data
+
+---
+
+# 🚀 UPDATED MASTER PROMPT (MULTI-COMPANY)
+
+You are a senior full-stack mobile app developer. Build a production-ready mobile application using React Native (Expo) and Firebase.
+
+This app is a Multi-Tenant “Manpower Complaint & Resolution System” used by multiple companies. Each company must have completely isolated data.
+
+---
+
+🔧 TECH STACK
+
+Frontend:
+
+* React Native (Expo)
+* React Navigation
+* Zustand or Context API
+
+Backend:
+
+* Firebase:
+
+  * Authentication (Phone OTP)
+  * Firestore (database)
+  * Storage (media uploads)
+  * FCM (notifications)
+
+---
+
+🧠 CORE ARCHITECTURE (VERY IMPORTANT)
+
+This is a MULTI-TENANT SYSTEM.
+
+* Each company has separate data
+* All collections must include companyId
+* Users must only access data from their company
+
+---
+
+📦 DATABASE STRUCTURE
+
+companies/
+id
+name
+
+users/
+id
+phone
+role (client/supervisor/founder)
+companyId
+
+sites/
+id
+name
+companyId
+clientId
+
+complaints/
+id
+companyId
+siteId
+clientId
+supervisorId
+status
+beforeMediaUrl
+afterMediaUrl
+description
+createdAt
+resolvedAt
+
+---
+
+🔐 AUTH SYSTEM
+
+* Phone OTP login
+* On login:
+
+  * If user exists → fetch role + companyId
+  * If new → assign company + role
+* Auto-login support
+
+---
+
+📱 ROLE-BASED DASHBOARDS
+
+---
+
+🏢 CLIENT APP
+
+* Header shows:
+
+  * Company Name
+  * Site Selector (dropdown)
+
+* Features:
+
+  * Raise complaint (image/video)
+  * View complaints (only their site + company)
+  * Complaint detail (before/after proof)
+
+---
+
+👷 SUPERVISOR APP
+
+* Header:
+
+  * Company Name
+  * Assigned Sites
+
+* Features:
+
+  * View complaints (filtered by companyId)
+  * Start work
+  * Upload proof
+  * Mark resolved
+
+---
+
+🧑‍💼 FOUNDER DASHBOARD
+
+* Add Company Switcher (dropdown at top)
+
+* Screens:
+
+  * Overview (KPIs per company)
+  * Analytics (charts)
+  * All complaints (filtered)
+
+* Read-only access
+
+---
+
+📊 ANALYTICS
+
+* Complaints per company
+* Resolution time
+* Site performance
+* Supervisor performance
+
+---
+
+🔔 NOTIFICATIONS
+
+* Trigger only within same company
+* No cross-company data leakage
+
+---
+
+📁 FOLDER STRUCTURE
+
+* /screens
+* /components
+* /navigation
+* /services/firebase
+* /store
+* /utils
+
+---
+
+⚡ SECURITY RULES
+
+* Enforce companyId filtering in Firestore queries
+* Users cannot access other company data
+
+---
+
+🎨 UI DESIGN
+
+* Clean, modern, minimal
+* Dark blue primary (#0B1F3A)
+* Status colors:
+
+  * Red / Yellow / Green
+* Card-based UI
+* Large buttons for field usability
+
+---
+
+🚀 OUTPUT REQUIRED
+
+1. Full working app code
+2. Firebase setup
+3. Navigation
+4. Multi-company logic implemented
+5. Sample test data for multiple companies
+
+Build this as a scalable SaaS product ready for real-world use.
+
+---
+
+# 🔥 What You Just Built (Big Picture)
+
+Now your app is:
+
+✅ Multi-company
+✅ Scalable SaaS
+✅ Sellable product
+✅ Enterprise-ready
+
+---
+
+# ⚡ Next Step (Highly Recommended)
+
+Now we should:
+
+👉 Add **Company Creation Panel (Admin only)**
+👉 Add **User Invite System (via phone)**
+
+---
+
+If you want, I’ll design that next 👇
+
+Just say:
+👉 **“ADD COMPANY SYSTEM”** 🚀
