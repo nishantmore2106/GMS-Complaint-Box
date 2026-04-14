@@ -77,13 +77,12 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
     color: Colors.text,
     textAlign: 'center'
   },
   message: {
     fontSize: 14,
-    fontFamily: 'Inter_400Regular',
     color: Colors.textMuted,
     textAlign: 'center',
     lineHeight: 20,
@@ -112,6 +111,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: 'white',
     fontSize: 15,
-    fontFamily: 'Inter_700Bold'
+    fontWeight: '700'
   }
 });

@@ -39,7 +39,8 @@ if (SENTRY_DSN && !SENTRY_DSN.includes("your-dsn-here")) {
   });
 }
 
-SplashScreen.preventAutoHideAsync();
+console.log("[BUNDLE] App Bundle starting...");
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const queryClient = new QueryClient();
 
@@ -161,6 +162,7 @@ function RootLayoutNav() {
     // 3. Client restrictions (Example: Clients can only see their own complaints, handled in AppContext, 
     // but we can block them from certain sub-routes if needed here)
 
+    console.log("[RootLayoutNav] State update:", { loaded, isAuthLoading, hasUser: !!currentUser, segment: segments?.[0] });
   }, [currentUser, isAuthLoading, loaded, segments]);
 
   if (isAuthLoading || !loaded) {
@@ -224,7 +226,13 @@ function RootLayout() {
     hide();
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: '#6B7280', fontSize: 14 }}>Initializing App...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
