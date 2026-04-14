@@ -1,42 +1,88 @@
 export const Colors = {
-  bg: "#080F1C",
-  surface: "#0F1B2D",
-  surfaceElevated: "#162236",
-  surfaceBorder: "#1E3050",
-  card: "#111C2E",
+  // Backgrounds
+  bg: "#FFFFFF", // Pure white base
+  bgGradient: ["#FFFFFF", "#FFFFFF"],
+  surface: "#FFFFFF",
+  surfaceElevated: "#FFFFFF",
+  surfaceBorder: "rgba(0,0,0,0.03)",
+  card: "#FFFFFF",
 
-  primary: "#2563EB",
-  primaryLight: "#3B82F6",
-  primaryMuted: "rgba(37,99,235,0.15)",
+  // Pastel Gradients (Mesh matching screenshot)
+  heroGradient: ["#FFE4E1", "#E0F7FA", "#E8F5E9"], // Soft Pink to Cyan to Mint
+  moduleGradient1: ["#FDF2F8", "#E0F2FE"], // Pink to Blue
+  moduleGradient2: ["#F0FDF4", "#E0F2FE"], // Mint to Blue
+  navCenterGradient: ["#FBCFE8", "#BAE6FD"], // Glowing center button
 
-  accent: "#60A5FA",
+  // Nav Bar
+  navBg: "#0B0F19", // Dark floating pill
+  navActive: "#BAE6FD", // Light blue icon highlight
+  navInactive: "#6B7280",
 
-  pending: "#EF4444",
-  pendingBg: "rgba(239,68,68,0.12)",
-  inProgress: "#F59E0B",
-  inProgressBg: "rgba(245,158,11,0.12)",
-  resolved: "#22C55E",
-  resolvedBg: "rgba(34,197,94,0.12)",
+  // Brand / Actions
+  primary: "#111827", // Standard buttons are dark
+  primaryMuted: "#374151",
+  secondary: "#F3F4F6", // Light grey for circular icon buttons
+  secondaryMuted: "#E5E7EB",
+  
+  // High-Fidelity Accents
+  accent: "#111827",
+  accentLight: "#374151",
+  orangePill: "#F97316",
+  
+  // Status (Tonal)
+  pending: "#F97316",
+  pendingBg: "#FFF7ED",
+  inProgress: "#3B82F6",
+  inProgressBg: "#EFF6FF",
+  resolved: "#10B981",
+  resolvedBg: "#ECFDF5",
 
-  text: "#F1F5F9",
-  textSub: "#94A3B8",
-  textMuted: "#4A6280",
+  // Typography
+  text: "#111827",
+  textSub: "#374151",
+  textMuted: "#6B7280",
 
+  // Helpers
   white: "#FFFFFF",
   danger: "#EF4444",
-  success: "#22C55E",
-  warning: "#F59E0B",
+  success: "#10B981",
+  warning: "#F97316",
 
-  border: "#1E3050",
-  borderLight: "rgba(255,255,255,0.06)",
+  // Borders & Shadows (Ambient)
+  border: "rgba(0,0,0,0.03)",
+  shadowColor: "#000000",
+  shadowOpacity: 0.04,
+  shadowRadius: 20,
+
+  // Dark Mode Tokens (Premium Slate)
+  dark: {
+    bg: "#0F172A",
+    surface: "#1E293B",
+    surfaceElevated: "#334155",
+    border: "rgba(255,255,255,0.06)",
+    text: "#F8FAFC",
+    textSub: "#94A3B8",
+    textMuted: "#64748B",
+    heroGradient: ["#1E1B4B", "#312E81", "#1E293B"],
+    cardGradient: ["#1E1B4B", "#0F172A"],
+    accent: "#3B82F6",
+    accentMuted: "rgba(59,130,246,0.1)",
+  }
 };
 
 export default {
   light: {
-    text: "#F1F5F9",
-    background: "#080F1C",
-    tint: "#2563EB",
-    tabIconDefault: "#4A6280",
-    tabIconSelected: "#60A5FA",
+    text: "#2D3337",
+    background: "#F8F9FB",
+    tint: "#43627E",
+    tabIconDefault: "#9CA3AF",
+    tabIconSelected: "#43627E",
   },
+  dark: {
+    text: "#F8FAFC",
+    background: "#0F172A",
+    tint: "#3B82F6",
+    tabIconDefault: "#64748B",
+    tabIconSelected: "#3B82F6",
+  }
 };

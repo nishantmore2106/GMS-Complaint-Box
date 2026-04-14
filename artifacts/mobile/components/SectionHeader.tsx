@@ -26,6 +26,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontFamily: "Inter_700Bold",
-    color: Colors.textPrimary,
+    color: Colors.text,
   },
 });

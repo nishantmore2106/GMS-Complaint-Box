@@ -1,0 +1,36 @@
+name: Project Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📦 Checkout Project
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🚀 Install Corepack
+        run: corepack enable
+
+      - name: 📦 Install Dependencies
+        run: pnpm install
+
+      - name: 🕵️ Linting Check
+        run: pnpm run lint
+        continue-on-error: true
+
+      - name: 🏗️ Type Check
+        run: pnpm run typecheck
+
+      - name: 🧪 Unit Tests
+        run: pnpm run test

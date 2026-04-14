@@ -2,10 +2,11 @@
   "expo": {
     "name": "GMS Complaints Box",
     "slug": "mobile",
+    "owner": "nishantmore21",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "gms-complaints",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -14,9 +15,15 @@
       "backgroundColor": "#0B1F3A"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.gms.complaints"
     },
-    "android": {},
+    "android": {
+      "package": "com.gms.complaints",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
@@ -24,16 +31,31 @@
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://gms-complaint-box.netlify.app/"
         }
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-image-picker"
+      "expo-image-picker",
+      "expo-notifications",
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "gms-complaints",
+          "project": "mobile-app",
+          "uploadSourceMaps": false,
+          "autoUploadSourceMaps": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "26e99dce-5bb0-44db-b5a4-7a5eb53b0822"
+      }
     }
   }
 }

@@ -1,0 +1,12 @@
+﻿≡ƒÜÇ Starting Stability Test: 20 VUs, 5 iterations each...
+
+≡ƒôè --- STABILITY TEST REPORT ---
+Total Virtual Users:  20
+Total Transactions:   100
+Success Rate:         100.00%
+Average Latency:      935.91ms
+Min Latency:          721ms
+Max Latency:          1766ms
+Total Test Time:      5.05s
+-------------------------------
+

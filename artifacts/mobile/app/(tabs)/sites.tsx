@@ -1,283 +1,281 @@
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import React, { useState } from "react";
+import { router } from "expo-router";
+import * as ImagePicker from 'expo-image-picker';
+import React, { useState, useMemo, useRef } from "react";
 import {
-  Alert,
+  FlatList,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
+  Modal,
+  ScrollView,
+  Image,
+  RefreshControl,
+  TextInput
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
+import { SoftInput } from "@/components/SoftInput";
+import { SoftButton } from "@/components/SoftButton";
+import * as Haptics from 'expo-haptics';
+import { useToast } from "@/components/Toast";
+import { DashboardHeader } from "@/components/DashboardHeader";
 
-export default function SitesScreen() {
-  const {
-    currentUser, selectedCompanyId, getCompanySites, getCompanyComplaints,
-    getCompanyUsers, assignSupervisorToSite, getUserById, getCompanyById,
+export default function SitesTabScreen() {
+  const { 
+    currentUser, 
+    getCompanySites, 
+    selectedCompanyId, 
+    complaints, 
+    users, 
+    getCompanyById, 
+    createSite, 
+    provisionClient, 
+    isDarkMode,
+    refreshData 
   } = useApp();
+  
   const insets = useSafeAreaInsets();
-  const [assigningId, setAssigningId] = useState<string | null>(null);
-  const [emailInput, setEmailInput] = useState("");
+  const { showToast } = useToast();
+  const role = currentUser?.role;
+  
+  const [search, setSearch] = useState("");
+  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  
+  // Add Site Form State
+  const [newName, setNewName] = useState("");
+  const [newLocation, setNewLocation] = useState("");
+  const [newSupEmail, setNewSupEmail] = useState("");
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientPhone, setNewClientPhone] = useState("");
+  const [newClientEmail, setNewClientEmail] = useState("");
+  const [newClientPassword, setNewClientPassword] = useState("");
+  const [newClientPhoto, setNewClientPhoto] = useState("");
+  const [newAuthority, setNewAuthority] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const companyId = selectedCompanyId ?? currentUser?.companyId ?? "";
-  const sites = getCompanySites(companyId);
-  const complaints = getCompanyComplaints(companyId);
-  const supervisors = getCompanyUsers(companyId).filter((u) => u.role === "supervisor");
-  const company = getCompanyById(companyId);
+  const locationRef = useRef<TextInput>(null);
+  const clientNameRef = useRef<TextInput>(null);
+  const clientEmailRef = useRef<TextInput>(null);
+  const supEmailRef = useRef<TextInput>(null);
 
-  const handleAssign = (siteId: string, supervisorId: string | null) => {
-    assignSupervisorToSite(siteId, supervisorId);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setAssigningId(null);
-  };
-
-  const handleInvite = (siteId: string) => {
-    const email = emailInput.trim().toLowerCase();
-    if (!email) return;
-    const existingSup = supervisors.find((u) => u.name.toLowerCase().includes(email) || u.phone === email);
-    if (existingSup) {
-      handleAssign(siteId, existingSup.id);
-      setEmailInput("");
-    } else {
-      Alert.alert("Invite Sent", `An invitation would be sent to "${emailInput}" to create a supervisor account. (Demo mode — not implemented)`, [
-        { text: "OK", onPress: () => { setEmailInput(""); setAssigningId(null); } },
-      ]);
+  const pickClientImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images',
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled) {
+      setNewClientPhoto(result.assets[0].uri);
     }
   };
 
-  return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={[
-        styles.scroll,
-        { paddingTop: Platform.OS === "web" ? insets.top + 67 : insets.top + 16, paddingBottom: 120 },
-      ]}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.title}>Site Management</Text>
-          <Text style={styles.sub}>{company?.name ?? ""}</Text>
+  const companyId = selectedCompanyId ?? currentUser?.companyId ?? "";
+  const company = getCompanyById(companyId);
+  const sites = getCompanySites(companyId);
+
+  const filteredSites = useMemo(() => {
+    const q = search.toLowerCase();
+    let baseSites = sites;
+    if (role === 'supervisor') {
+      baseSites = sites.filter(s => s.assignedSupervisorId === currentUser?.id);
+    }
+    return baseSites.filter((s) => {
+      const supervisor = users.find((u) => u.id === s.assignedSupervisorId);
+      return (
+        (s.name || "").toLowerCase().includes(q) ||
+        (s.address || "").toLowerCase().includes(q) ||
+        (supervisor?.name || "").toLowerCase().includes(q) ||
+        (s.clientName || "").toLowerCase().includes(q)
+      );
+    });
+  }, [sites, search, users, role, currentUser]);
+
+  const handleAddSite = async () => {
+    if (!newName.trim() || !newLocation.trim()) {
+      showToast("Site name and location are required", "error");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      let supId = null;
+      if (newSupEmail.trim()) {
+        const existingUser = users.find((u) => u.email?.toLowerCase() === newSupEmail.toLowerCase() && u.role === 'supervisor');
+        if (existingUser) supId = existingUser.id;
+      }
+      const site = await createSite({
+        name: newName,
+        companyId,
+        address: newLocation,
+        clientName: newClientName,
+        clientPhone: newClientPhone,
+        authorityName: newAuthority,
+        supervisorId: supId || undefined
+      });
+      if (newClientEmail) {
+        await provisionClient(site.id, newClientEmail, newClientName || newName + " Client", newClientPassword, newClientPhoto, companyId);
+      }
+      showToast("Site added successfully", "success");
+      setIsAddModalVisible(false);
+      setNewName(""); setNewLocation(""); setNewSupEmail("");
+      setNewClientName(""); setNewClientPhone(""); setNewClientEmail("");
+      setNewClientPassword(""); setNewClientPhoto(""); setNewAuthority("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      showToast(e.message || "Failed to add site", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const renderSiteItem = ({ item: s }: { item: any }) => {
+    const sc = complaints.filter((c) => c.siteId === s.id);
+    const activeCount = sc.filter(c => c.status !== 'resolved').length;
+    const supervisor = users.find(u => u.id === s.assignedSupervisorId);
+    
+    return (
+      <Pressable 
+        style={[styles.siteCard, isDarkMode && styles.darkCard]}
+        onPress={() => router.push(`/admin/site/${s.id}`)}
+      >
+        <View style={styles.siteHeaderRow}>
+          <View style={styles.titleArea}>
+            <Text style={[styles.siteName, isDarkMode && styles.darkText]}>{s.name}</Text>
+            <View style={styles.locationRow}>
+              <Feather name="map-pin" size={12} color={isDarkMode ? Colors.dark.textMuted : "#9CA3AF"} />
+              <Text style={[styles.siteAddress, isDarkMode && styles.darkTextSub]} numberOfLines={1}>{s.address || "Location pending"}</Text>
+            </View>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: activeCount > 5 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)' }]}>
+             <Text style={[styles.statusText, { color: activeCount > 5 ? '#EF4444' : '#10B981' }]}>{activeCount} {role === 'client' ? 'ISSUES' : 'ACTIVE'}</Text>
+          </View>
         </View>
-        <View style={styles.countBadge}>
-          <Text style={styles.countText}>{sites.length} sites</Text>
+        <View style={[styles.divider, isDarkMode && styles.darkDivider]} />
+        <View style={styles.metaRow}>
+           <View style={styles.supProfileRow}>
+              <View style={[styles.avatarMini, isDarkMode && styles.darkAvatar]}>
+                {supervisor ? (
+                  <Text style={[styles.avatarText, isDarkMode && styles.darkText]}>{supervisor.name.substring(0, 1).toUpperCase()}</Text>
+                ) : (
+                  <Feather name="user-x" size={14} color="#9CA3AF" />
+                )}
+              </View>
+              <Text style={[styles.supName, isDarkMode && styles.darkTextSub]}>{supervisor?.name || "Unassigned"}</Text>
+           </View>
+           <Feather name="chevron-right" size={18} color="#D1D5DB" />
+        </View>
+      </Pressable>
+    );
+  };
+
+  return (
+    <View style={[styles.root, isDarkMode && styles.darkRoot]}>
+      <DashboardHeader 
+        title="Sites"
+        subtitle={company?.name || "Service Locations"}
+        rightElement={
+          role === 'founder' && (
+            <Pressable style={styles.addBtn} onPress={() => setIsAddModalVisible(true)}>
+              <Feather name="plus" size={20} color="white" />
+            </Pressable>
+          )
+        }
+      />
+      <View style={styles.searchBox}>
+        <View style={[styles.searchBar, isDarkMode && styles.darkSearchBar]}>
+          <Feather name="search" size={18} color={isDarkMode ? Colors.dark.textMuted : "#9CA3AF"} />
+          <TextInput
+            placeholder="Search sites..."
+            placeholderTextColor={isDarkMode ? Colors.dark.textMuted : "#9CA3AF"}
+            style={[styles.searchInput, isDarkMode && styles.darkText]}
+            value={search}
+            onChangeText={setSearch}
+            returnKeyType="search"
+          />
         </View>
       </View>
 
-      {sites.length === 0 ? (
-        <View style={styles.empty}>
-          <Feather name="map-pin" size={32} color={Colors.textMuted} />
-          <Text style={styles.emptyTitle}>No sites yet</Text>
-          <Text style={styles.emptySub}>Sites will appear here once added to your account</Text>
-        </View>
-      ) : (
-        sites.map((site) => {
-          const siteComplaints = complaints.filter((c) => c.siteId === site.id);
-          const active = siteComplaints.filter((c) => c.status !== "resolved").length;
-          const resolved = siteComplaints.filter((c) => c.status === "resolved").length;
-          const assignedSup = site.assignedSupervisorId ? getUserById(site.assignedSupervisorId) : null;
-          const health = siteComplaints.length > 0 ? Math.round((resolved / siteComplaints.length) * 100) : 100;
-          const healthColor = health >= 80 ? Colors.resolved : health >= 40 ? Colors.inProgress : Colors.pending;
-          const isAssigning = assigningId === site.id;
+      <FlatList
+        data={filteredSites}
+        renderItem={renderSiteItem}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl 
+            refreshing={false} 
+            onRefresh={async () => {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              await refreshData();
+            }} 
+            tintColor={isDarkMode ? 'white' : Colors.primary} 
+          />
+        }
+      />
 
-          return (
-            <View key={site.id} style={styles.card}>
-              {/* Site header */}
-              <View style={styles.cardTop}>
-                <View style={styles.siteIcon}>
-                  <Feather name="map-pin" size={15} color={Colors.accent} />
-                </View>
-                <View style={styles.siteInfo}>
-                  <Text style={styles.siteName}>{site.name}</Text>
-                  <View style={styles.siteStats}>
-                    {active > 0 && (
-                      <View style={styles.activeBadge}>
-                        <Text style={styles.activeBadgeText}>{active} active</Text>
-                      </View>
-                    )}
-                    <Text style={styles.resolvedText}>{resolved} resolved</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Health bar */}
-              <View style={styles.healthRow}>
-                <Text style={styles.healthLabel}>Site Health</Text>
-                <View style={styles.healthBarWrap}>
-                  <View style={styles.healthTrack}>
-                    <View style={[styles.healthFill, { width: `${health}%` as any, backgroundColor: healthColor }]} />
-                  </View>
-                  <Text style={[styles.healthPct, { color: healthColor }]}>{health}%</Text>
-                </View>
-              </View>
-
-              {/* Supervisor assignment */}
-              <View style={styles.assignSection}>
-                <View style={styles.assignHeader}>
-                  <Feather name="user-check" size={13} color={Colors.textMuted} />
-                  <Text style={styles.assignLabel}>Assigned Supervisor</Text>
-                </View>
-
-                {assignedSup ? (
-                  <View style={styles.supervisorRow}>
-                    <View style={styles.supAvatar}>
-                      <Text style={styles.supAvatarText}>{assignedSup.name.split(" ").map((n) => n[0]).join("")}</Text>
-                    </View>
-                    <View style={styles.supInfo}>
-                      <Text style={styles.supName}>{assignedSup.name}</Text>
-                      <Text style={styles.supId}>ID: {assignedSup.phone}</Text>
-                    </View>
-                    <Pressable
-                      style={styles.changeBtn}
-                      onPress={() => setAssigningId(isAssigning ? null : site.id)}
-                    >
-                      <Text style={styles.changeBtnText}>Change</Text>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <Pressable
-                    style={styles.unassignedRow}
-                    onPress={() => setAssigningId(isAssigning ? null : site.id)}
-                  >
-                    <View style={styles.unassignedIcon}>
-                      <Feather name="user-plus" size={14} color={Colors.inProgress} />
-                    </View>
-                    <Text style={styles.unassignedText}>No supervisor assigned — tap to assign</Text>
-                    <Feather name="chevron-right" size={14} color={Colors.inProgress} />
+      <Modal visible={isAddModalVisible} animationType="slide" transparent>
+         <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, isDarkMode && styles.darkCard]}>
+               <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, isDarkMode && styles.darkText]}>Add Site</Text>
+                  <Pressable onPress={() => setIsAddModalVisible(false)} style={styles.closeBtn}>
+                     <Feather name="x" size={20} color={isDarkMode ? "white" : "#6B7280"} />
                   </Pressable>
-                )}
-
-                {/* Assignment panel */}
-                {isAssigning && (
-                  <View style={styles.assignPanel}>
-                    <Text style={styles.panelTitle}>Select Supervisor</Text>
-
-                    {supervisors.map((sup) => (
-                      <Pressable
-                        key={sup.id}
-                        style={[
-                          styles.supOption,
-                          site.assignedSupervisorId === sup.id && styles.supOptionActive,
-                        ]}
-                        onPress={() => handleAssign(site.id, sup.id)}
-                      >
-                        <View style={styles.supOptionAvatar}>
-                          <Text style={styles.supOptionInitials}>{sup.name.split(" ").map((n) => n[0]).join("")}</Text>
-                        </View>
-                        <View style={styles.supOptionInfo}>
-                          <Text style={styles.supOptionName}>{sup.name}</Text>
-                          <Text style={styles.supOptionId}>ID: {sup.phone}</Text>
-                        </View>
-                        {site.assignedSupervisorId === sup.id && (
-                          <Feather name="check" size={16} color={Colors.accent} />
-                        )}
-                      </Pressable>
-                    ))}
-
-                    <View style={styles.divider} />
-                    <Text style={styles.inviteLabel}>Invite by Employee ID or Email</Text>
-                    <View style={styles.inviteRow}>
-                      <TextInput
-                        style={styles.inviteInput}
-                        placeholder="Employee ID or email…"
-                        placeholderTextColor={Colors.textMuted}
-                        value={emailInput}
-                        onChangeText={setEmailInput}
-                        selectionColor={Colors.accent}
-                        autoCapitalize="none"
-                      />
-                      <Pressable
-                        style={[styles.inviteBtn, !emailInput && { opacity: 0.5 }]}
-                        onPress={() => handleInvite(site.id)}
-                        disabled={!emailInput}
-                      >
-                        <Text style={styles.inviteBtnText}>Invite</Text>
-                      </Pressable>
-                    </View>
-
-                    {assignedSup && (
-                      <Pressable style={styles.unassignBtn} onPress={() => handleAssign(site.id, null)}>
-                        <Feather name="user-x" size={14} color={Colors.pending} />
-                        <Text style={styles.unassignBtnText}>Remove Supervisor</Text>
-                      </Pressable>
-                    )}
-
-                    <Pressable style={styles.closeBtn} onPress={() => setAssigningId(null)}>
-                      <Text style={styles.closeBtnText}>Close</Text>
-                    </Pressable>
-                  </View>
-                )}
-              </View>
+               </View>
+               <ScrollView contentContainerStyle={styles.modalForm} showsVerticalScrollIndicator={false}>
+                  <SoftInput label="Site Name" placeholder="e.g. Skyline Towers" value={newName} onChangeText={setNewName} isDarkMode={isDarkMode} returnKeyType="next" onSubmitEditing={() => locationRef.current?.focus()} />
+                  <SoftInput ref={locationRef} label="Location" placeholder="Full address" value={newLocation} onChangeText={setNewLocation} isDarkMode={isDarkMode} returnKeyType="next" onSubmitEditing={() => clientNameRef.current?.focus()} />
+                  <SoftInput ref={clientNameRef} label="Client Name" value={newClientName} onChangeText={setNewClientName} isDarkMode={isDarkMode} returnKeyType="next" onSubmitEditing={() => clientEmailRef.current?.focus()} />
+                  <SoftInput ref={clientEmailRef} label="Client Email" value={newClientEmail} onChangeText={setNewClientEmail} isDarkMode={isDarkMode} keyboardType="email-address" autoCapitalize="none" returnKeyType="next" onSubmitEditing={() => supEmailRef.current?.focus()} />
+                  <SoftInput ref={supEmailRef} label="Supervisor Email" value={newSupEmail} onChangeText={setNewSupEmail} isDarkMode={isDarkMode} keyboardType="email-address" autoCapitalize="none" returnKeyType="done" onSubmitEditing={handleAddSite} />
+               </ScrollView>
+               <View style={styles.modalFooter}>
+                  <SoftButton title="Cancel" variant="secondary" onPress={() => setIsAddModalVisible(false)} style={{ flex: 1 }} isDarkMode={isDarkMode} />
+                  <SoftButton title={isSubmitting ? "Creating..." : "Add Site"} onPress={handleAddSite} loading={isSubmitting} style={{ flex: 2 }} isDarkMode={isDarkMode} />
+               </View>
             </View>
-          );
-        })
-      )}
-    </ScrollView>
+         </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.bg },
-  scroll: { paddingHorizontal: 16, gap: 14 },
-  headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
-  title: { fontSize: 24, fontFamily: "Inter_700Bold", color: Colors.text },
-  sub: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted, marginTop: 2 },
-  countBadge: { backgroundColor: Colors.primaryMuted, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100, marginTop: 4 },
-  countText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: Colors.accent },
-  empty: { alignItems: "center", paddingVertical: 60, gap: 10 },
-  emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: Colors.textSub },
-  emptySub: { fontSize: 13, fontFamily: "Inter_400Regular", color: Colors.textMuted, textAlign: "center", maxWidth: 220 },
-  card: { backgroundColor: Colors.surface, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, gap: 14 },
-  cardTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  siteIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.primaryMuted, justifyContent: "center", alignItems: "center" },
-  siteInfo: { flex: 1, gap: 4 },
-  siteName: { fontSize: 15, fontFamily: "Inter_700Bold", color: Colors.text },
-  siteStats: { flexDirection: "row", alignItems: "center", gap: 8 },
-  activeBadge: { backgroundColor: Colors.pendingBg, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  activeBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold", color: Colors.pending },
-  resolvedText: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  healthRow: { gap: 6 },
-  healthLabel: { fontSize: 11, fontFamily: "Inter_500Medium", color: Colors.textMuted },
-  healthBarWrap: { flexDirection: "row", alignItems: "center", gap: 8 },
-  healthTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: Colors.surfaceElevated, overflow: "hidden" },
-  healthFill: { height: "100%", borderRadius: 3 },
-  healthPct: { fontSize: 11, fontFamily: "Inter_600SemiBold", width: 32, textAlign: "right" },
-  assignSection: { gap: 10 },
-  assignHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
-  assignLabel: { fontSize: 11, fontFamily: "Inter_500Medium", color: Colors.textMuted },
-  supervisorRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: Colors.surfaceElevated, borderRadius: 12, padding: 10 },
-  supAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primaryMuted, justifyContent: "center", alignItems: "center" },
-  supAvatarText: { fontSize: 13, fontFamily: "Inter_700Bold", color: Colors.accent },
-  supInfo: { flex: 1 },
-  supName: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.text },
-  supId: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  changeBtn: { backgroundColor: Colors.primaryMuted, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  changeBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.accent },
-  unassignedRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: Colors.inProgressBg, borderRadius: 12, padding: 12 },
-  unassignedIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: Colors.inProgress + "30", justifyContent: "center", alignItems: "center" },
-  unassignedText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: Colors.inProgress },
-  assignPanel: { backgroundColor: Colors.surfaceElevated, borderRadius: 14, padding: 14, gap: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  panelTitle: { fontSize: 13, fontFamily: "Inter_700Bold", color: Colors.text },
-  supOption: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: Colors.border },
-  supOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryMuted },
-  supOptionAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.primaryMuted, justifyContent: "center", alignItems: "center" },
-  supOptionInitials: { fontSize: 12, fontFamily: "Inter_700Bold", color: Colors.accent },
-  supOptionInfo: { flex: 1 },
-  supOptionName: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.text },
-  supOptionId: { fontSize: 11, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  divider: { height: 1, backgroundColor: Colors.surfaceBorder },
-  inviteLabel: { fontSize: 12, fontFamily: "Inter_500Medium", color: Colors.textSub },
-  inviteRow: { flexDirection: "row", gap: 8 },
-  inviteInput: { flex: 1, backgroundColor: Colors.surface, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontFamily: "Inter_400Regular", color: Colors.text, borderWidth: 1, borderColor: Colors.border },
-  inviteBtn: { backgroundColor: Colors.primary, borderRadius: 10, paddingHorizontal: 14, justifyContent: "center" },
-  inviteBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.white },
-  unassignBtn: { flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center", paddingVertical: 8 },
-  unassignBtnText: { fontSize: 13, fontFamily: "Inter_500Medium", color: Colors.pending },
-  closeBtn: { alignItems: "center", paddingVertical: 8 },
-  closeBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.textMuted },
+  darkRoot: { backgroundColor: Colors.dark.bg },
+  searchBox: { paddingHorizontal: 24, paddingBottom: 16 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', paddingHorizontal: 16, height: 52, borderRadius: 12, gap: 12 },
+  darkSearchBar: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border, borderWidth: 1 },
+  searchInput: { flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium' },
+  addBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
+  list: { padding: 24, gap: 16, paddingBottom: 120 },
+  siteCard: { padding: 20, backgroundColor: 'white', borderRadius: 24 },
+  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border, borderWidth: 1 },
+  siteHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  titleArea: { flex: 1, gap: 4 },
+  siteName: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: '#111827' },
+  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  siteAddress: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6B7280' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
+  statusText: { fontSize: 10, fontFamily: 'Inter_800ExtraBold' },
+  divider: { height: 1, backgroundColor: 'rgba(0,0,0,0.03)', marginVertical: 12 },
+  darkDivider: { backgroundColor: Colors.dark.border },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  supProfileRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatarMini: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
+  darkAvatar: { backgroundColor: Colors.dark.surfaceElevated },
+  avatarText: { fontSize: 12, fontFamily: 'Inter_800ExtraBold' },
+  supName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6B7280' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(17,24,39,0.4)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, maxHeight: '90%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  modalTitle: { fontSize: 22, fontFamily: 'Inter_900Black' },
+  closeBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
+  modalForm: { gap: 16 },
+  modalFooter: { flexDirection: 'row', gap: 12, marginTop: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
+  darkText: { color: 'white' },
+  darkTextSub: { color: Colors.dark.textSub },
 });

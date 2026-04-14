@@ -1,0 +1,68 @@
+{
+  "cli": {
+    "version": ">= 13.0.0",
+    "appVersionSource": "remote",
+    "requireCommit": false
+  },
+  "build": {
+    "development": {
+      "node": "20.18.3",
+      "pnpm": "8.15.9",
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fhrlkydgmmrnrjbnabng.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZocmxreWRnbW1ybnJqYm5hYm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzQxMTcsImV4cCI6MjA4OTY1MDExN30.7hveTRBv5_AgxsrSA7vSPtN7i-XT_4HABuntiLJL57g",
+        "PNPM_FROZEN_LOCKFILE": "false",
+        "NPM_CONFIG_FROZEN_LOCKFILE": "false",
+        "EAS_SKIP_AUTO_FINGERPRINT": "1",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    },
+    "preview": {
+      "node": "20.18.3",
+      "pnpm": "8.15.9",
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fhrlkydgmmrnrjbnabng.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZocmxreWRnbW1ybnJqYm5hYm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzQxMTcsImV4cCI6MjA4OTY1MDExN30.7hveTRBv5_AgxsrSA7vSPtN7i-XT_4HABuntiLJL57g",
+        "PNPM_FROZEN_LOCKFILE": "false",
+        "NPM_CONFIG_FROZEN_LOCKFILE": "false",
+        "EAS_SKIP_AUTO_FINGERPRINT": "1",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    },
+    "production": {
+      "node": "20.18.3",
+      "pnpm": "8.15.9",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fhrlkydgmmrnrjbnabng.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZocmxreWRnbW1ybnJqYm5hYm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzQxMTcsImV4cCI6MjA4OTY1MDExN30.7hveTRBv5_AgxsrSA7vSPtN7i-XT_4HABuntiLJL57g",
+        "PNPM_FROZEN_LOCKFILE": "false",
+        "NPM_CONFIG_FROZEN_LOCKFILE": "false",
+        "EAS_SKIP_AUTO_FINGERPRINT": "1",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    },
+    "apk": {
+      "node": "20.18.3",
+      "pnpm": "8.15.9",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fhrlkydgmmrnrjbnabng.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZocmxreWRnbW1ybnJqYm5hYm5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNzQxMTcsImV4cCI6MjA4OTY1MDExN30.7hveTRBv5_AgxsrSA7vSPtN7i-XT_4HABuntiLJL57g",
+        "PNPM_FROZEN_LOCKFILE": "false",
+        "NPM_CONFIG_FROZEN_LOCKFILE": "false",
+        "EAS_SKIP_AUTO_FINGERPRINT": "1",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

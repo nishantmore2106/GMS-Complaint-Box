@@ -1,303 +1,530 @@
+// FORCE_REFRESH_V11_DECOMPOSED
 import { Feather } from "@expo/vector-icons";
+import { SoftInput } from '@/components/SoftInput';
+import { SoftButton } from '@/components/SoftButton';
+import { SiteAllocationModal } from '@/components/SiteAllocationModal';
 import * as Haptics from "expo-haptics";
-import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import * as ImagePicker from 'expo-image-picker';
+import React, { useMemo, useState, useEffect } from "react";
 import {
   Platform,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  TextInput,
+  useWindowDimensions,
+  Pressable,
+  Modal
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ComplaintCard } from "@/components/ComplaintCard";
-import { KPICard } from "@/components/KPICard";
 import { Colors } from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
+import { useToast } from "@/components/Toast";
+import { useTranslation } from "react-i18next";
+import { DashboardHeader } from "@/components/DashboardHeader";
 
-export default function DashboardScreen() {
+// New Decomposed Components
+import { FounderDashboard } from "@/components/dashboard/FounderDashboard";
+import { SupervisorDashboard } from "@/components/dashboard/SupervisorDashboard";
+import { ClientDashboard } from "@/components/dashboard/ClientDashboard";
+import { QuickAddSupervisorModal } from "@/components/QuickAddSupervisorModal";
+import { QuickAddSiteModal } from "@/components/QuickAddSiteModal";
+import { DashboardStatsSkeleton } from "@/components/Skeleton";
+
+export default function HomeScreen() {
   const {
     currentUser,
     selectedCompanyId,
-    companies,
     getCompanyComplaints,
-    getCompanySites,
-    setSelectedCompanyId,
+    refreshData,
+    notifications,
+    sites,
+    users,
+    createSupervisor,
+    createSite,
+    provisionClient,
+    siteMetrics,
+    supervisorMetrics,
+    isDarkMode,
     getCompanyById,
+    profileImage,
+    updateSite,
+    isLoading
   } = useApp();
-  const [refreshing, setRefreshing] = useState(false);
+
+  const { width } = useWindowDimensions();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Modals Visibility
+  const [isAddSupVisible, setIsAddSupVisible] = useState(false);
+  const [isAddSiteVisible, setIsAddSiteVisible] = useState(false);
+  const [isAllocationVisible, setIsAllocationVisible] = useState(false);
+  const [isSupProfileVisible, setIsSupProfileVisible] = useState(false);
+
+  // Form States (Supervisor)
+  const [supName, setSupName] = useState("");
+  const [supEmail, setSupEmail] = useState("");
+  const [supPhone, setSupPhone] = useState("");
+  const [supPass, setSupPass] = useState("");
+  const [isCreatingSup, setIsCreatingSup] = useState(false);
+
+  // Form States (Site)
+  const [siteName, setSiteName] = useState("");
+  const [siteLocation, setSiteLocation] = useState("");
+  const [siteSupEmail, setSiteSupEmail] = useState("");
+  const [siteClientName, setClientName] = useState("");
+  const [siteClientEmail, setClientEmail] = useState("");
+  const [siteClientPhone, setClientPhone] = useState("");
+  const [siteClientPass, setClientPass] = useState("");
+  const [siteClientPhoto, setSiteClientPhoto] = useState("");
+  const [siteAuthority, setSiteAuthority] = useState("");
+  const [isCreatingSite, setIsCreatingSite] = useState(false);
 
   const companyId = selectedCompanyId ?? currentUser?.companyId ?? "";
-  const company = getCompanyById(companyId);
-  const complaints = getCompanyComplaints(companyId);
-  const sites = getCompanySites(companyId);
   const role = currentUser?.role;
 
-  const userComplaints = useMemo(() => {
-    if (role === "client") return complaints.filter((c) => c.clientId === currentUser?.id);
-    if (role === "supervisor") return complaints.filter((c) => c.supervisorId === currentUser?.id);
-    return complaints;
-  }, [complaints, role, currentUser]);
+  // Onboarding check
+  useEffect(() => {
+    if (currentUser && currentUser.hasOnboarded === false) {
+      router.replace("/onboarding");
+    }
+  }, [currentUser]);
 
-  const pending = userComplaints.filter((c) => c.status === "pending").length;
-  const inProgress = userComplaints.filter((c) => c.status === "in_progress").length;
-  const resolved = userComplaints.filter((c) => c.status === "resolved").length;
-  const urgent = userComplaints.filter((c) => c.priority === "high" && c.status !== "resolved").length;
+  // Data Fetching & Computed Stats
+  const complaints = getCompanyComplaints(companyId);
+  
+  const clientStats = useMemo(() => {
+    if (role !== 'client') return null;
+    const myComplaints = complaints.filter(c => c.clientId === currentUser?.id);
+    const mySite = sites.find(s => s.clientId === currentUser?.id);
+    
+    const siteComplaints = mySite ? complaints.filter(c => c.siteId === mySite.id && c.status !== 'resolved') : [];
+    const activeCount = siteComplaints.length;
+    const highPriorityCount = siteComplaints.filter(c => c.priority === 'high').length;
+    
+    let health: 'stable' | 'warning' | 'critical' = 'stable';
+    if (highPriorityCount > 0 || activeCount >= 3) health = 'critical';
+    else if (activeCount > 0) health = 'warning';
 
-  const recentComplaints = useMemo(
-    () => [...userComplaints].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 4),
-    [userComplaints]
-  );
+    return {
+      pendingCount: myComplaints.filter(c => c.status === 'pending').length,
+      inProgressCount: myComplaints.filter(c => c.status === 'in_progress').length,
+      resolvedToday: myComplaints.filter(c => c.status === 'resolved' && new Date(c.resolvedAt || "").toDateString() === new Date().toDateString()).length,
+      latestComplaint: myComplaints.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0],
+      weeklyResolved: myComplaints.filter(c => c.status === 'resolved' && new Date(c.resolvedAt || "").getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000).length,
+      avgResStr: "24h",
+      activeComplaints: myComplaints.filter(c => c.status !== 'resolved').slice(0, 5),
+      siteName: mySite?.name || "My Site",
+      siteData: mySite,
+      supervisor: users.find(u => u.id === mySite?.assignedSupervisorId),
+      siteHealth: health,
+      siteActiveCount: activeCount,
+      alerts: []
+    };
+  }, [role, complaints, currentUser, sites, users]);
 
+  const supervisorStats = useMemo(() => {
+    if (role !== 'supervisor') return null;
+    const mySites = sites.filter(s => s.assignedSupervisorId === currentUser?.id);
+    const mySiteIds = mySites.map(s => s.id);
+    const myComplaints = complaints.filter(c => 
+      c.supervisorId === currentUser?.id || 
+      mySiteIds.includes(c.siteId)
+    );
+    const pending = myComplaints.filter(c => c.status === 'pending').length;
+    const inProgress = myComplaints.filter(c => c.status === 'in_progress').length;
+    const completedToday = myComplaints.filter(c => c.status === 'resolved' && new Date(c.resolvedAt || "").toDateString() === new Date().toDateString()).length;
+    
+    return {
+      pendingCount: pending,
+      inProgressCount: inProgress,
+      completedTodayCount: completedToday,
+      urgentTasks: myComplaints.filter(c => c.priority === 'high' && c.status !== 'resolved'),
+      nextBest: myComplaints.filter(c => c.status === 'pending').sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0],
+      progress: (pending + inProgress) > 0 ? completedToday / (pending + inProgress + completedToday) : 1,
+      mySites: mySites.map(s => {
+        const siteComplaints = complaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
+        const activeCount = siteComplaints.length;
+        const highPriorityCount = siteComplaints.filter(c => c.priority === 'high').length;
+        
+        let health: 'stable' | 'warning' | 'critical' = 'stable';
+        if (highPriorityCount > 0 || activeCount >= 3) health = 'critical';
+        else if (activeCount > 0) health = 'warning';
+
+        return {
+          id: s.id,
+          name: s.name,
+          address: s.address,
+          taskCount: activeCount,
+          highPriorityCount,
+          health,
+          isCritical: health === 'critical'
+        };
+      }),
+      activeTasks: myComplaints.filter(c => c.status !== 'resolved').sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    };
+  }, [role, complaints, currentUser, sites]);
+
+  const founderStats = useMemo(() => {
+    if (role !== 'founder') return null;
+    const activeIssues = complaints.filter(c => c.status !== 'resolved').length;
+    const resolvedToday = complaints.filter(c => c.status === 'resolved' && new Date(c.resolvedAt || "").toDateString() === new Date().toDateString()).length;
+    const criticalSites = siteMetrics.filter(m => m.status === 'critical');
+    
+    // Daily Bar Data for Founder (Last 7 Days)
+    const chartData = [];
+    const now = new Date();
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dayStr = d.toDateString();
+      const count = complaints.filter(c => 
+        c.status === 'resolved' && 
+        new Date(c.resolvedAt || c.createdAt).toDateString() === dayStr
+      ).length;
+      chartData.push({ label: dayNames[d.getDay()], value: count, isToday: i === 0 });
+    }
+
+    const topSupervisors = (supervisorMetrics || [])
+      .sort((a, b) => (b.tasks_completed - a.tasks_completed))
+      .slice(0, 3)
+      .map(m => {
+        const user = users.find(u => u.id === m.supervisor_id);
+        return { ...m, name: user?.name || "Unknown", avatar: user?.name?.substring(0, 2).toUpperCase() };
+      });
+
+    return {
+      activeIssueCount: activeIssues,
+      resolvedTodayCount: resolvedToday,
+      criticalSiteCount: sites.filter(s => {
+        const active = complaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
+        return active.some(c => c.priority === 'high') || active.length >= 3;
+      }).length,
+      criticalSites: sites.filter(s => {
+        const active = complaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
+        return active.some(c => c.priority === 'high') || active.length >= 3;
+      }).slice(0, 5),
+      topSupervisors,
+      chartData,
+      healthProgress: activeIssues > 10 ? 0.4 : (activeIssues > 5 ? 0.7 : 0.95),
+      healthMessage: activeIssues > 10 ? "Critical workload peak" : (activeIssues > 0 ? "Operations active" : "All operations stable")
+    };
+  }, [role, complaints, siteMetrics, sites, supervisorMetrics, users]);
+
+  const activeSites = useMemo(() => {
+    const companySites = sites.filter(s => s.companyId === companyId);
+    let filtered = companySites;
+    if (role === 'supervisor') filtered = companySites.filter(s => s.assignedSupervisorId === currentUser?.id);
+    
+    return filtered.slice(0, 10).map(s => {
+      const siteComplaints = complaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
+      const activeCount = siteComplaints.length;
+      const highPriorityCount = siteComplaints.filter(c => c.priority === 'high').length;
+      
+      let health: 'stable' | 'warning' | 'critical' = 'stable';
+      if (highPriorityCount > 0 || activeCount >= 3) health = 'critical';
+      else if (activeCount > 0) health = 'warning';
+
+      return {
+        ...s,
+        taskCount: activeCount,
+        highPriorityCount,
+        health,
+        isCritical: health === 'critical'
+      };
+    });
+  }, [sites, complaints, companyId, role, currentUser]);
+
+  const filteredPersonnel = useMemo(() => {
+    if (role !== 'founder' || !searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return users.filter(u =>
+      (u.name || "").toLowerCase().includes(q) ||
+      (u.email || "").toLowerCase().includes(q)
+    );
+  }, [users, role, searchQuery]);
+
+  // Event Handlers
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setRefreshing(false);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      await refreshData();
+    } catch (e) {
+      console.error("[Home] Refresh failed:", e);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
-  const roleColors = { founder: Colors.primary, client: Colors.success, supervisor: Colors.warning };
-  const roleColor = roleColors[role ?? "client"];
-  const roleLabels = { founder: "Founder", client: "Client", supervisor: "Supervisor" };
+  const handleCreateSupervisor = async () => {
+    if (!supName || !supEmail || !supPass) {
+      showToast("Required fields missing", "error");
+      return;
+    }
+    setIsCreatingSup(true);
+    try {
+      await createSupervisor(supEmail, supPass, supName, supPhone, companyId);
+      showToast("Supervisor account created", "success");
+      setIsAddSupVisible(false);
+      setSupName(""); setSupEmail(""); setSupPhone(""); setSupPass("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      showToast(e.message || "Failed to create supervisor", "error");
+    } finally {
+      setIsCreatingSup(false);
+    }
+  };
 
-  const founderCompanies = role === "founder" ? companies : [];
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+  const handleQuickAddSite = async () => {
+    if (!siteName || !siteLocation) {
+      showToast("Required fields missing", "error");
+      return;
+    }
+    setIsCreatingSite(true);
+    try {
+      let supId = null;
+      if (siteSupEmail) {
+        const found = users.find(u => u.email?.toLowerCase() === siteSupEmail.toLowerCase() && u.role === 'supervisor');
+        if (found) supId = found.id;
+      }
+      const site = await createSite({
+        name: siteName,
+        companyId,
+        address: siteLocation,
+        clientName: siteClientName,
+        clientPhone: siteClientPhone,
+        authorityName: siteAuthority,
+        supervisorId: supId || undefined
+      });
+      if (siteClientEmail) {
+        await provisionClient(site.id, siteClientEmail, siteClientName || siteName + " Client", siteClientPass, siteClientPhoto, companyId);
+      }
+      showToast("Site added successfully", "success");
+      setIsAddSiteVisible(false);
+      setSiteName(""); setSiteLocation(""); setSiteSupEmail("");
+      setClientName(""); setClientEmail(""); setClientPhone(""); setClientPass(""); setSiteClientPhoto("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      showToast(e.message || "Failed to add site", "error");
+    } finally {
+      setIsCreatingSite(false);
+    }
+  };
+
+  const handleAllocate = async (siteId: string, supervisorId: string) => {
+    try {
+      await updateSite(siteId, { assignedSupervisorId: supervisorId });
+      showToast("Site allocation updated", "success");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      showToast(e.message || "Allocation failed", "error");
+      throw e;
+    }
+  };
+
+  const pickClientImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images',
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled) setSiteClientPhoto(result.assets[0].uri);
+  };
+
+  if (!currentUser) return null;
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, isDarkMode && styles.darkBg]}>
+      {/* Global Refreshable Container */}
       <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scroll,
-          {
-            paddingTop: Platform.OS === "web" ? insets.top + 67 : insets.top + 16,
-            paddingBottom: 120,
-          },
-        ]}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />
-        }
+         showsVerticalScrollIndicator={false}
+         refreshControl={
+           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={isDarkMode ? 'white' : Colors.primary} />
+         }
+         contentContainerStyle={{ paddingBottom: 100 }}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <View style={styles.companyPill}>
-              <Feather name="briefcase" size={11} color={Colors.textMuted} />
-              <Text style={styles.companyName}>{company?.name ?? "—"}</Text>
-            </View>
-            <Text style={styles.greeting}>{greeting}, <Text style={styles.userName}>{currentUser?.name?.split(" ")[0]}</Text></Text>
-          </View>
-          <View style={[styles.rolePill, { backgroundColor: roleColor + "22" }]}>
-            <Text style={[styles.roleText, { color: roleColor }]}>{roleLabels[role ?? "client"]}</Text>
-          </View>
-        </View>
+        <DashboardHeader 
+           showCompanyPill={role === 'founder'} 
+           title={role === 'founder' ? t('founder_hub', 'Founder Hub') : (role === 'supervisor' ? t('ops_center', 'Ops Center') : t('status_room', 'Status Room'))}
+           subtitle={role === 'founder' ? t('strategic_overview', 'Strategic Overview') : (role === 'supervisor' ? t('field_active', 'Field Active') : t('client_overview', 'Client Overview'))}
+         />
 
-        {/* Company switcher for founders */}
-        {role === "founder" && founderCompanies.length > 1 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.companySwitcher}>
-            {founderCompanies.map((c) => (
-              <Pressable
-                key={c.id}
-                style={[styles.companyChip, c.id === companyId && styles.companyChipActive]}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedCompanyId(c.id); }}
-              >
-                <Text style={[styles.companyChipText, c.id === companyId && styles.companyChipTextActive]}>{c.name}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        )}
-
-        {/* Urgent alert */}
-        {urgent > 0 && (
-          <Pressable
-            style={styles.alertBanner}
-            onPress={() => router.push("/(tabs)/complaints")}
-          >
-            <LinearGradient
-              colors={["rgba(239,68,68,0.18)", "rgba(239,68,68,0.06)"]}
-              style={styles.alertGrad}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            >
-              <View style={styles.alertDot} />
-              <Text style={styles.alertText}>{urgent} urgent complaint{urgent > 1 ? "s" : ""} need attention</Text>
-              <Feather name="chevron-right" size={16} color={Colors.pending} />
-            </LinearGradient>
-          </Pressable>
-        )}
-
-        {/* KPI row */}
-        <View style={styles.kpiRow}>
-          <KPICard label="Pending" value={pending} icon="clock" color={Colors.inProgress} bg={Colors.inProgressBg} />
-          <KPICard label="Active" value={inProgress} icon="activity" color={Colors.primary} bg={Colors.primaryMuted} />
-          <KPICard label="Resolved" value={resolved} icon="check-circle" color={Colors.resolved} bg={Colors.resolvedBg} />
-        </View>
-
-        {/* Role-specific raise button */}
-        {role === "client" && (
-          <Pressable
-            style={({ pressed }) => [styles.raiseBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/complaint/new"); }}
-          >
-            <LinearGradient colors={["#2563EB", "#1D4ED8"]} style={styles.raiseBtnGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-              <View style={styles.raiseBtnIcon}>
-                <Feather name="camera" size={18} color={Colors.white} />
-              </View>
-              <View style={styles.raiseBtnText}>
-                <Text style={styles.raiseBtnTitle}>Raise New Complaint</Text>
-                <Text style={styles.raiseBtnSub}>Camera-first complaint submission</Text>
-              </View>
-              <Feather name="arrow-right" size={18} color="rgba(255,255,255,0.6)" />
-            </LinearGradient>
-          </Pressable>
-        )}
-
-        {/* Supervisor urgent tasks */}
-        {role === "supervisor" && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Today's Tasks</Text>
-            <View style={styles.taskSummary}>
-              <View style={[styles.taskChip, { borderColor: Colors.pendingBg }]}>
-                <View style={[styles.taskDot, { backgroundColor: Colors.pending }]} />
-                <Text style={[styles.taskChipText, { color: Colors.pending }]}>{pending} Pending</Text>
-              </View>
-              <View style={[styles.taskChip, { borderColor: Colors.inProgressBg }]}>
-                <View style={[styles.taskDot, { backgroundColor: Colors.inProgress }]} />
-                <Text style={[styles.taskChipText, { color: Colors.inProgress }]}>{inProgress} Active</Text>
-              </View>
-              <Pressable
-                style={styles.taskViewAll}
-                onPress={() => router.push("/(tabs)/complaints")}
-              >
-                <Text style={styles.taskViewAllText}>View All</Text>
-                <Feather name="arrow-right" size={12} color={Colors.accent} />
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {/* Sites for non-clients */}
-        {role !== "client" && sites.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>Sites Overview</Text>
-              <Text style={styles.sectionCount}>{sites.length} sites</Text>
-            </View>
-            <View style={styles.siteGrid}>
-              {sites.slice(0, 4).map((s) => {
-                const sc = complaints.filter((c) => c.siteId === s.id);
-                const active = sc.filter((c) => c.status !== "resolved").length;
-                const health = sc.length === 0 ? 1 : Math.round(((sc.length - active) / sc.length) * 100);
-                const healthColor = health >= 80 ? Colors.resolved : health >= 50 ? Colors.inProgress : Colors.pending;
-                return (
-                  <View key={s.id} style={styles.siteCard}>
-                    <View style={styles.siteCardTop}>
-                      <Feather name="map-pin" size={13} color={Colors.accent} />
-                      {active > 0 && (
-                        <View style={styles.siteBadge}>
-                          <Text style={styles.siteBadgeText}>{active}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.siteName} numberOfLines={2}>{s.name}</Text>
-                    <View style={styles.siteHealthBar}>
-                      <View style={[styles.siteHealthFill, { width: `${health}%` as any, backgroundColor: healthColor }]} />
-                    </View>
-                    <Text style={[styles.siteHealthText, { color: healthColor }]}>{health}% resolved</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        )}
-
-        {/* Recent complaints */}
-        <View style={styles.section}>
-          <View style={styles.sectionRow}>
-            <Text style={styles.sectionTitle}>Recent Complaints</Text>
-            <Pressable onPress={() => router.push("/(tabs)/complaints")}>
-              <Text style={styles.seeAll}>See All</Text>
+        {/* Universal Search Bar */}
+        <View style={[styles.searchContainer, isDarkMode && styles.darkSearchBar]}>
+          <Feather name="search" size={20} color={Colors.textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={[styles.searchInput, isDarkMode && styles.darkText]}
+            placeholder={t('search_placeholder', "Search tasks, sites, or staff...")}
+            placeholderTextColor={isDarkMode ? Colors.dark.textMuted : Colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => setSearchQuery("")} style={{ padding: 8 }}>
+              <Feather name="x-circle" size={18} color={Colors.textMuted} />
             </Pressable>
-          </View>
-          {recentComplaints.length === 0 ? (
-            <View style={styles.empty}>
-              <Feather name="inbox" size={36} color={Colors.textMuted} />
-              <Text style={styles.emptyTitle}>All clear</Text>
-              <Text style={styles.emptySub}>{role === "client" ? "Raise a complaint above" : "No complaints assigned"}</Text>
-            </View>
-          ) : (
-            <View style={styles.list}>
-              {recentComplaints.map((c) => <ComplaintCard key={c.id} complaint={c} />)}
-            </View>
           )}
         </View>
+
+        {/* Dashboards (Role-Based) */}
+        {searchQuery.length === 0 ? (
+          <>
+            {isLoading && !refreshing ? (
+              <DashboardStatsSkeleton isDarkMode={isDarkMode} />
+            ) : (
+              <>
+                {role === 'founder' && (
+                  <FounderDashboard 
+                    founderStats={founderStats} 
+                    activeSites={activeSites} 
+                    siteMetrics={siteMetrics} 
+                    isDarkMode={isDarkMode} 
+                    t={t} 
+                    setIsAddSiteVisible={setIsAddSiteVisible} 
+                    setIsAddSupVisible={setIsAddSupVisible}
+                    setIsAllocationVisible={setIsAllocationVisible}
+                  />
+                )}
+                {role === 'supervisor' && (
+                  <SupervisorDashboard 
+                    supervisorStats={supervisorStats} 
+                    isDarkMode={isDarkMode} 
+                    t={t} 
+                    refreshData={refreshData} 
+                  />
+                )}
+                {role === 'client' && (
+                  <ClientDashboard 
+                    clientStats={clientStats} 
+                    isDarkMode={isDarkMode} 
+                    t={t} 
+                    setIsSupProfileVisible={setIsSupProfileVisible} 
+                  />
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <View style={styles.searchResults}>
+            {/* Personnel Match (Founder Only) */}
+            {role === 'founder' && filteredPersonnel.length > 0 && (
+              <View style={{ paddingHorizontal: 24, marginBottom: 32 }}>
+                <Text style={styles.sectionHeading}>Personnel Match</Text>
+                {filteredPersonnel.map(person => (
+                  <Pressable key={person.id} style={[styles.siteCard, isDarkMode && styles.darkCard]} onPress={() => router.push(`/admin/supervisors?search=${person.name}`)}>
+                    <View style={styles.siteCardHead}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.siteName, isDarkMode && styles.darkText]}>{person.name}</Text>
+                        <Text style={[styles.address, isDarkMode && styles.darkTextSub]}>{person.email}</Text>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: '#F3F4F6' }]}>
+                        <Text style={[styles.statusTxt, { color: '#666' }]}>{person.role?.toUpperCase()}</Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {filteredPersonnel.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No results found for "{searchQuery}"</Text>
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
+
+      {/* Shared Modals */}
+      <QuickAddSupervisorModal 
+        visible={isAddSupVisible}
+        onClose={() => setIsAddSupVisible(false)}
+        name={supName} setName={setSupName}
+        email={supEmail} setEmail={setSupEmail}
+        phone={supPhone} setPhone={setSupPhone}
+        pass={supPass} setPass={setSupPass}
+        loading={isCreatingSup}
+        onSave={handleCreateSupervisor}
+      />
+
+      <QuickAddSiteModal 
+        visible={isAddSiteVisible}
+        onClose={() => setIsAddSiteVisible(false)}
+        name={siteName} setName={setSiteName}
+        location={siteLocation} setLocation={setSiteLocation}
+        supEmail={siteSupEmail} setSupEmail={setSiteSupEmail}
+        clientName={siteClientName} setClientName={setClientName}
+        clientEmail={siteClientEmail} setClientEmail={setClientEmail}
+        clientPhone={siteClientPhone} setClientPhone={setClientPhone}
+        clientPass={siteClientPass} setClientPass={setClientPass}
+        clientPhoto={siteClientPhoto} onPickPhoto={pickClientImage}
+        loading={isCreatingSite}
+        onSave={handleQuickAddSite}
+      />
+
+      {/* Supervisor Profile Modal (Simplified placeholder as it's less critical for OOM) */}
+      <Modal visible={isSupProfileVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+           <View style={[styles.supProfileCard, isDarkMode && styles.darkCard]}>
+              <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, isDarkMode && styles.darkText]}>Supervisor</Text>
+                 <Pressable onPress={() => setIsSupProfileVisible(false)} style={styles.closeBtn}>
+                   <Feather name="x" size={20} color={Colors.textMuted} />
+                 </Pressable>
+              </View>
+              <View style={{ alignItems: 'center', padding: 20 }}>
+                 <Text style={[styles.darkText, { fontSize: 18, fontFamily: 'Inter_700Bold' }]}>{clientStats?.supervisor?.name || "Assigned Manager"}</Text>
+                 <Text style={styles.emptyStateText}>{clientStats?.supervisor?.email || "Email pending"}</Text>
+              </View>
+           </View>
+        </View>
+      </Modal>
+
+      <SiteAllocationModal 
+        visible={isAllocationVisible}
+        onClose={() => setIsAllocationVisible(false)}
+        sites={sites.filter(s => s.companyId === companyId)}
+        supervisors={users.filter(u => u.role === 'supervisor' && u.companyId === companyId)}
+        onAllocate={handleAllocate}
+        isDarkMode={isDarkMode}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.bg },
-  scroll: { paddingHorizontal: 16, gap: 18 },
-  header: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
-  headerLeft: { gap: 5, flex: 1 },
-  companyPill: { flexDirection: "row", alignItems: "center", gap: 5 },
-  companyName: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  greeting: { fontSize: 21, fontFamily: "Inter_400Regular", color: Colors.text },
-  userName: { fontFamily: "Inter_700Bold", color: Colors.text },
-  rolePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100, marginTop: 4 },
-  roleText: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  companySwitcher: { flexGrow: 0 },
-  companyChip: {
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 100,
-    backgroundColor: Colors.surface, borderWidth: 1.5, borderColor: Colors.border, marginRight: 8,
-  },
-  companyChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  companyChipText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.textSub },
-  companyChipTextActive: { color: Colors.white },
-  alertBanner: { borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: Colors.pendingBg },
-  alertGrad: { flexDirection: "row", alignItems: "center", padding: 14, gap: 10 },
-  alertDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.pending },
-  alertText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: Colors.pending },
-  kpiRow: { flexDirection: "row", gap: 10 },
-  raiseBtn: { borderRadius: 16, overflow: "hidden" },
-  raiseBtnGrad: { flexDirection: "row", alignItems: "center", padding: 16, gap: 12, borderRadius: 16 },
-  raiseBtnIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.15)", justifyContent: "center", alignItems: "center" },
-  raiseBtnText: { flex: 1 },
-  raiseBtnTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: Colors.white },
-  raiseBtnSub: { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.6)", marginTop: 1 },
-  section: { gap: 12 },
-  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sectionTitle: { fontSize: 15, fontFamily: "Inter_700Bold", color: Colors.text },
-  sectionCount: { fontSize: 12, fontFamily: "Inter_400Regular", color: Colors.textMuted },
-  seeAll: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.accent },
-  taskSummary: { flexDirection: "row", alignItems: "center", gap: 10 },
-  taskChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1,
-    backgroundColor: Colors.surface,
-  },
-  taskDot: { width: 6, height: 6, borderRadius: 3 },
-  taskChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  taskViewAll: { marginLeft: "auto" as any, flexDirection: "row", alignItems: "center", gap: 4 },
-  taskViewAllText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: Colors.accent },
-  siteGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  siteCard: {
-    flex: 1, minWidth: 140, backgroundColor: Colors.surface, borderRadius: 14,
-    padding: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, gap: 6,
-  },
-  siteCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  siteBadge: { backgroundColor: Colors.pendingBg, borderRadius: 100, paddingHorizontal: 6, paddingVertical: 1 },
-  siteBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold", color: Colors.pending },
-  siteName: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: Colors.text },
-  siteHealthBar: { height: 4, backgroundColor: Colors.surfaceElevated, borderRadius: 2, overflow: "hidden" },
-  siteHealthFill: { height: "100%", borderRadius: 2 },
-  siteHealthText: { fontSize: 10, fontFamily: "Inter_500Medium" },
-  list: { gap: 10 },
-  empty: { alignItems: "center", paddingVertical: 32, gap: 8 },
-  emptyTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: Colors.textSub },
-  emptySub: { fontSize: 13, fontFamily: "Inter_400Regular", color: Colors.textMuted, textAlign: "center", maxWidth: 220 },
+  darkBg: { backgroundColor: Colors.dark.bg },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.secondary, marginHorizontal: 24, borderRadius: 100, paddingHorizontal: 20, height: 56, marginTop: 4, marginBottom: 20 },
+  darkSearchBar: { backgroundColor: Colors.dark.surfaceElevated, borderColor: Colors.dark.border, borderWidth: 1 },
+  searchIcon: { marginRight: 12 },
+  searchInput: { flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium', color: Colors.text },
+  darkText: { color: 'white' },
+  darkTextSub: { color: Colors.dark.textSub },
+  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border, borderWidth: 1 },
+  searchResults: { paddingTop: 10 },
+  sectionHeading: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: Colors.text, paddingHorizontal: 24, marginBottom: 16 },
+  siteCard: { padding: 16, borderRadius: 20, backgroundColor: 'white', marginBottom: 12 },
+  siteCardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  siteName: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: '#111827', marginBottom: 4 },
+  address: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6B7280' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
+  statusTxt: { fontSize: 10, fontFamily: 'Inter_800ExtraBold', letterSpacing: 0.5 },
+  emptyState: { padding: 40, alignItems: 'center' },
+  emptyStateText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: Colors.textMuted },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(17, 24, 39, 0.4)', justifyContent: 'flex-end' },
+  supProfileCard: { width: '100%', padding: 24, borderRadius: 40, backgroundColor: 'white' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  modalTitle: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#111827' },
+  closeBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
 });

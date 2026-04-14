@@ -3,9 +3,9 @@ import { StyleSheet, Text, View } from "react-native";
 import { Colors } from "@/constants/colors";
 
 const P = {
-  low: { label: "Low", color: Colors.resolved, bg: Colors.resolvedBg },
-  medium: { label: "Med", color: Colors.inProgress, bg: Colors.inProgressBg },
-  high: { label: "High", color: Colors.pending, bg: Colors.pendingBg },
+  low: { label: "Low", color: Colors.resolved, bg: Colors.resolved + '10' },
+  medium: { label: "Med", color: Colors.primary, bg: Colors.primary + '10' },
+  high: { label: "High", color: Colors.pending, bg: Colors.pending + '10' },
 };
 
 export function PriorityBadge({ priority }: { priority: "low" | "medium" | "high" }) {
@@ -18,6 +18,6 @@ export function PriorityBadge({ priority }: { priority: "low" | "medium" | "high
 }
 
 const styles = StyleSheet.create({
-  badge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5 },
-  label: { fontSize: 10, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 0.4 },
+  badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  label: { fontSize: 9, fontFamily: "Inter_900Black", textTransform: "uppercase", letterSpacing: 0.5 },
 });

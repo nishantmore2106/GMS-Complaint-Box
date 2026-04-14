@@ -1,0 +1,9 @@
+﻿__tests__/App.test.tsx(6,1): error TS2582: Cannot find name 'describe'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+__tests__/App.test.tsx(7,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+__tests__/App.test.tsx(14,5): error TS2304: Cannot find name 'expect'.
+__tests__/App.test.tsx(17,3): error TS2582: Cannot find name 'it'. Do you need to install type definitions for a test runner? Try `npm i --save-dev @types/jest` or `npm i --save-dev @types/mocha`.
+__tests__/App.test.tsx(18,5): error TS2304: Cannot find name 'expect'.
+components/DashboardHighFidelity.tsx(55,37): error TS2322: Type '"default"' is not assignable to type '"flat" | "elevated" | "glass" | undefined'.
+components/SectionHeader.tsx(29,19): error TS2339: Property 'textPrimary' does not exist on type '{ bg: string; bgGradient: string[]; surface: string; surfaceElevated: string; surfaceBorder: string; card: string; heroGradient: string[]; moduleGradient1: string[]; moduleGradient2: string[]; navCenterGradient: string[]; ... 27 more ...; dark: { ...; }; }'.
+services/notification.service.ts(6,35): error TS2322: Type 'Promise<{ shouldShowAlert: true; shouldPlaySound: true; shouldSetBadge: true; }>' is not assignable to type 'Promise<NotificationBehavior>'.
+  Type '{ shouldShowAlert: true; shouldPlaySound: true; shouldSetBadge: true; }' is missing the following properties from type 'NotificationBehavior': shouldShowBanner, shouldShowList

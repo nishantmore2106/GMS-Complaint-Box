@@ -1,13 +1,21 @@
 import { Feather } from "@expo/vector-icons";
-import { Redirect, Tabs } from "expo-router";
+import { Tabs, router } from "expo-router";
 import React from "react";
-import { Platform } from "react-native";
+import { Platform, View, StyleSheet, TouchableOpacity } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { Colors } from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
 
-export default function TabLayout() {
-  const { currentUser } = useApp();
+import { Redirect } from 'expo-router';
 
+export default function TabLayout() {
+  const { currentUser, isAuthLoading } = useApp();
+
+  if (isAuthLoading) {
+    return null;
+  }
+
+  // Fail-safe redirect if session is lost
   if (!currentUser) {
     return <Redirect href="/" />;
   }
@@ -19,69 +27,104 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: Colors.surface,
-          borderTopColor: Colors.surfaceBorder,
-          borderTopWidth: 1,
-          height: Platform.OS === "ios" ? 84 : 64,
-          paddingBottom: Platform.OS === "ios" ? 22 : 8,
-          paddingTop: 8,
+          backgroundColor: Colors.navBg,
+          height: Platform.OS === 'ios' ? 88 : 72,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 0,
+          borderTopWidth: 0,
+          elevation: 10,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.1,
+          shadowRadius: 12,
         },
-        tabBarActiveTintColor: Colors.accent,
-        tabBarInactiveTintColor: Colors.textMuted,
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontFamily: "Inter_500Medium",
-          marginTop: 2,
-        },
+        tabBarShowLabel: false,
+        tabBarActiveTintColor: Colors.navActive,
+        tabBarInactiveTintColor: Colors.navInactive,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="home" size={size - 2} color={color} />
+          tabBarIcon: ({ color }) => (
+            <View style={styles.iconContainer}>
+              <Feather name="home" size={24} color={color} />
+            </View>
           ),
         }}
       />
       <Tabs.Screen
         name="complaints"
         options={{
-          title: "Complaints",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="inbox" size={size - 2} color={color} />
+          tabBarIcon: ({ color }) => (
+            <View style={styles.iconContainer}>
+              {/* Using a bulb or activity icon to match the reference look for the second slot */}
+              <Feather name="zap" size={24} color={color} />
+            </View>
           ),
         }}
       />
+      
+      <Tabs.Screen
+        name="action"
+        options={{
+          href: null,
+        }}
+      />
+
       <Tabs.Screen
         name="analytics"
         options={{
-          title: "Analytics",
-          href: role === "supervisor" ? null : undefined,
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="bar-chart-2" size={size - 2} color={color} />
+          tabBarIcon: ({ color }) => (
+            <View style={styles.iconContainer}>
+               <Feather name="bar-chart-2" size={24} color={color} />
+            </View>
           ),
         }}
       />
-      <Tabs.Screen
-        name="sites"
-        options={{
-          title: "Sites",
-          href: role === "founder" ? undefined : null,
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="map-pin" size={size - 2} color={color} />
-          ),
-        }}
-      />
+
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="user" size={size - 2} color={color} />
+          tabBarIcon: ({ color }) => (
+            <View style={styles.iconContainer}>
+              <Feather name="user" size={24} color={color} />
+            </View>
           ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="sites"
+        options={{
+          href: null,
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconContainer: {
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  centerButtonWrapper: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: Platform.OS === "android" ? 0 : 4,
+  },
+  centerButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+});
+
