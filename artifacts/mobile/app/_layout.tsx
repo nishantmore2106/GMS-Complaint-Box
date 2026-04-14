@@ -158,7 +158,7 @@ function RootLayoutNav() {
       return;
     } 
     
-    if (currentUser && inPublicGroup && rootSegment !== "onboarding") {
+    if (currentUser && inPublicGroup && rootSegment !== "onboarding" && Platform.OS !== 'web') {
       router.replace("/(tabs)");
       return;
     }
@@ -194,16 +194,23 @@ function RootLayoutNav() {
     <View style={{ flex: 1 }}>
       <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
         <Stack.Screen name="index" />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        
+        {Platform.OS !== 'web' && (
+          <>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="admin/supervisors" options={{ headerShown: false }} />
+            <Stack.Screen name="admin/index" options={{ headerShown: false }} />
+            <Stack.Screen name="admin/companies" options={{ headerShown: false }} />
+            <Stack.Screen name="admin/company-new" options={{ headerShown: false }} />
+            <Stack.Screen name="admin/site-new" options={{ headerShown: false }} />
+            <Stack.Screen name="admin/site/[id]" options={{ headerShown: false }} />
+          </>
+        )}
+
         <Stack.Screen name="complaint/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="complaint/new" options={{ headerShown: false, presentation: "modal" }} />
-        <Stack.Screen name="admin/supervisors" options={{ headerShown: false }} />
-        <Stack.Screen name="admin/index" options={{ headerShown: false }} />
-        <Stack.Screen name="admin/companies" options={{ headerShown: false }} />
-        <Stack.Screen name="admin/company-new" options={{ headerShown: false }} />
-        <Stack.Screen name="admin/site-new" options={{ headerShown: false }} />
-        <Stack.Screen name="admin/site/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen name="public/scan/[id]" options={{ headerShown: false }} />
       </Stack>
       <MaintenanceOverlay />
       <OfflineBanner />
