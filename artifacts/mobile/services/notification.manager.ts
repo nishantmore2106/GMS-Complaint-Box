@@ -70,12 +70,18 @@ export const NotificationManager = {
 
     const targets = [...staff];
 
-    // Also fetch the Client (Site Manager) for this specific site
+    // Also fetch the Client (Site Manager) AND the assigned Supervisor for this specific site
     if (site_id) {
-      const { data: site } = await supabase.from('sites').select('client_id').eq('id', site_id).single();
-      if (site && site.client_id) {
-        const { data: client } = await supabase.from('users').select('id, role, expo_push_token').eq('id', site.client_id).single();
-        if (client) targets.push(client as any);
+      const { data: site } = await supabase.from('sites').select('client_id, assigned_supervisor_id').eq('id', site_id).single();
+      if (site) {
+        const idsToFetch = [];
+        if (site.client_id) idsToFetch.push(site.client_id);
+        if (site.assigned_supervisor_id) idsToFetch.push(site.assigned_supervisor_id);
+        
+        if (idsToFetch.length > 0) {
+          const { data: specificStaff } = await supabase.from('users').select('id, role, expo_push_token').in('id', idsToFetch);
+          if (specificStaff) targets.push(...(specificStaff as any));
+        }
       }
     }
 
@@ -86,11 +92,12 @@ export const NotificationManager = {
     const founders = targets.filter(u => u.role === 'founder');
     const clients = targets.filter(u => u.role === 'client');
 
-    // Notify ALL Supervisors & the Client
+    // Notify the Client and Targeted Supervisors (all staff in company for general, or assigned for site)
+    // To ensure "Direct to Supervisor", we make sure at least the assigned one is notified.
     await this._sendToTargets([...supervisors, ...clients] as any, 'complaint_created', notificationData);
 
-    // Notify Founders ALWAYS for anonymous/public complaints or High priority
-    if (priority.toLowerCase() === 'high' || complaint.is_anonymous) {
+    // Notify Founders ALWAYS for anonymous/public complaints
+    if (complaint.is_anonymous) {
       await this._sendToTargets(founders as any, 'complaint_created', notificationData);
     }
   },

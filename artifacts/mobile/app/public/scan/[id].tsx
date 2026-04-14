@@ -162,8 +162,11 @@ export default function AnonymousComplaintScreen() {
         <View style={styles.successIcon}>
           <Feather name="check" size={40} color="white" />
         </View>
-        <Text style={styles.successTitle}>Complaint Raised!</Text>
-        <Text style={styles.successSub}>Thank you for your feedback. Our supervisor has been notified and will arrive at {site.name} shortly.</Text>
+        <Text style={styles.successTitle}>Alert Dispatched!</Text>
+        <Text style={styles.successSub}>
+          Thank you. Your report has been sent **directly to the site supervisor** at {site.name}. 
+          Our staff will arrive at your location shortly to resolve the issue.
+        </Text>
       </View>
     );
   }
@@ -185,14 +188,17 @@ export default function AnonymousComplaintScreen() {
 
         {isInside === null ? (
           <SoftCard style={styles.checkCard}>
-            <Feather name="crosshair" size={32} color={Colors.primary} style={{ marginBottom: 12 }} />
-            <Text style={styles.checkTitle}>Quick Check</Text>
-            <Text style={styles.checkSub}>We need to verify you are currently at {site.name} to process this request.</Text>
+            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+              <Feather name="navigation" size={32} color={Colors.primary} />
+            </View>
+            <Text style={styles.checkTitle}>Are you at {site.name}?</Text>
+            <Text style={styles.checkSub}> To ensure a supervisor is dispatched to the correct location, we need to verify your proximity to this site.</Text>
             <SoftButton 
-              title={checkingLocation ? "Verifying..." : "Verify My Location"} 
+              title={checkingLocation ? "Verifying..." : "Confirm My Location"} 
               onPress={verifyLocation}
               loading={checkingLocation}
               variant="primary"
+              style={{ width: '100%' }}
             />
           </SoftCard>
         ) : isInside === false ? (

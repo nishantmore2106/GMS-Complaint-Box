@@ -141,6 +141,17 @@ function RootLayoutNav() {
     const inProtectedGroup = !!rootSegment && ["(tabs)", "admin", "complaint", "profile", "analytics"].includes(rootSegment);
     const inPublicGroup = !!rootSegment && ["onboarding", "index"].includes(rootSegment) || !rootSegment;
 
+    // 0. Web Lockdown (Website is for Public Portal ONLY)
+    if (Platform.OS === 'web') {
+      const rootSegment = segments?.[0] as string | undefined;
+      const isDashboardRoute = !!rootSegment && ["(tabs)", "admin", "complaint", "profile", "analytics"].includes(rootSegment);
+      if (isDashboardRoute) {
+        console.warn(`[RootLayout] Web Access Blocked: Dashboards are restricted to the mobile application.`);
+        router.replace("/");
+        return;
+      }
+    }
+
     // 1. Authentication Check
     if (!currentUser && inProtectedGroup) {
       router.replace("/");
@@ -158,9 +169,6 @@ function RootLayoutNav() {
       router.replace("/(tabs)");
       return;
     }
-
-    // 3. Client restrictions (Example: Clients can only see their own complaints, handled in AppContext, 
-    // but we can block them from certain sub-routes if needed here)
 
     console.log("[RootLayoutNav] State update:", { loaded, isAuthLoading, hasUser: !!currentUser, segment: segments?.[0] });
   }, [currentUser, isAuthLoading, loaded, segments]);

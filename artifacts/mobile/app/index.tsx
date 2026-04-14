@@ -25,24 +25,84 @@ import { TextInput } from "react-native";
 
 const { width } = Dimensions.get('window');
 
-export default function LoginScreen() {
-  const { signIn, isDarkMode } = useApp();
+export default function RootEntry() {
+  const { isDarkMode, isAuthLoading } = useApp();
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const insets = useSafeAreaInsets();
-  
+  const { signIn } = useApp();
+
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
 
+  if (Platform.OS === 'web') {
+    const activeGradient = isDarkMode ? Colors.dark.heroGradient : ['#FFFFFF', '#F0F9FF', '#FDF2F8'];
+    const activeBg = isDarkMode ? Colors.dark.bg : '#F8FAFA';
+
+    return (
+      <View style={[styles.root, { backgroundColor: activeBg }]}>
+        <LinearGradient colors={activeGradient as any} style={StyleSheet.absoluteFill} />
+        <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 80, alignItems: 'center' }]}>
+          <View style={styles.hero}>
+            <View style={[styles.logoContainer, isDarkMode && { backgroundColor: Colors.dark.surface }]}>
+              <View style={[styles.logoCircle, isDarkMode && { backgroundColor: '#3B82F620' }]}>
+                <Feather name="inbox" size={32} color={isDarkMode ? Colors.dark.accent : Colors.primary} />
+              </View>
+            </View>
+            <View style={styles.brandGroup}>
+              <Text style={[styles.appName, isDarkMode && { color: Colors.dark.text }]}>GMS Public Portal</Text>
+              <View style={[styles.pill, isDarkMode && { backgroundColor: '#10B98120' }]}>
+                <Text style={[styles.tagline, { color: '#10B981' }]}>Official Reporting Desk</Text>
+              </View>
+            </View>
+          </View>
+
+          <SoftCard style={[styles.formCard, { maxWidth: 500, width: '100%', gap: 32 }, isDarkMode && { backgroundColor: Colors.dark.surface }]}>
+            <View style={{ gap: 12, alignItems: 'center' }}>
+               <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center' }}>
+                  <Feather name="maximize" size={28} color="#3B82F6" />
+               </View>
+               <Text style={[styles.formTitle, { textAlign: 'center' }, isDarkMode && { color: Colors.dark.text }]}>Scan QR to Begin</Text>
+               <Text style={[styles.formSub, { textAlign: 'center' }, isDarkMode && { color: Colors.dark.textMuted }]}>
+                 To report an issue, please scan the QR code located in the specific room or area of the building.
+               </Text>
+            </View>
+
+            <View style={{ gap: 16, borderTopWidth: 1, borderTopColor: isDarkMode ? '#2D3748' : '#F3F4F6', paddingTop: 24 }}>
+               <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6' }} />
+                  <Text style={[styles.formSub, { fontSize: 14 }, isDarkMode && { color: Colors.dark.textSub }]}>Stay at your current location</Text>
+               </View>
+               <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6' }} />
+                  <Text style={[styles.formSub, { fontSize: 14 }, isDarkMode && { color: Colors.dark.textSub }]}>Enable GPS location access when prompted</Text>
+               </View>
+               <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6' }} />
+                  <Text style={[styles.formSub, { fontSize: 14 }, isDarkMode && { color: Colors.dark.textSub }]}>Reports are shared directly with site supervisors</Text>
+               </View>
+            </View>
+          </SoftCard>
+
+          <View style={[styles.footer, { opacity: 0.8 }]}>
+            <Text style={[styles.footerText, isDarkMode && { color: Colors.dark.textMuted }]}>
+              © 2026 GMS Facility Management Service
+            </Text>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   const handleAction = async () => {
     Keyboard.dismiss();
-    const targetEmail = email.trim();
-    const targetPass = password.trim();
+    setLoading(true);
+    setError("");
 
     try {
-      await signIn(targetEmail, targetPass);
+      await signIn(email.trim(), password.trim());
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
     } catch (e: any) {
@@ -64,7 +124,7 @@ export default function LoginScreen() {
         contentContainerStyle={[
           styles.scroll,
           {
-            paddingTop: Platform.OS === "web" ? insets.top + 60 : insets.top + 40,
+            paddingTop: insets.top + 40,
             paddingBottom: insets.bottom + 40,
           },
         ]}
@@ -78,9 +138,9 @@ export default function LoginScreen() {
             </View>
           </View>
           <View style={styles.brandGroup}>
-            <Text style={[styles.appName, isDarkMode && { color: Colors.dark.text }]}>GMS Complaints</Text>
+            <Text style={[styles.appName, isDarkMode && { color: Colors.dark.text }]}>Staff Terminal</Text>
             <View style={[styles.pill, isDarkMode && { backgroundColor: '#3B82F620' }]}>
-               <Text style={[styles.tagline, isDarkMode && { color: Colors.dark.accent }]}>Manpower Resolution</Text>
+               <Text style={[styles.tagline, isDarkMode && { color: Colors.dark.accent }]}>Secure Login</Text>
             </View>
           </View>
         </View>
@@ -88,10 +148,10 @@ export default function LoginScreen() {
         <SoftCard style={[styles.formCard, isDarkMode && { backgroundColor: Colors.dark.surface }]}>
           <View style={styles.formHeader}>
             <Text style={[styles.formTitle, isDarkMode && { color: Colors.dark.text }]}>
-              Access Hub
+              Dashboard
             </Text>
             <Text style={[styles.formSub, isDarkMode && { color: Colors.dark.textMuted }]}>
-              Enter your credentials to enter the dashboard
+              Enterprise credentials required
             </Text>
           </View>
 
@@ -99,7 +159,7 @@ export default function LoginScreen() {
             <SoftInput
               ref={emailRef}
               icon="mail"
-              placeholder="Corporate Email"
+              placeholder="Email"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -112,7 +172,7 @@ export default function LoginScreen() {
             <SoftInput
               ref={passwordRef}
               icon="lock"
-              placeholder="Secure Password"
+              placeholder="Password"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -120,13 +180,6 @@ export default function LoginScreen() {
               returnKeyType="done"
               onSubmitEditing={handleAction}
             />
-
-            <Pressable 
-              onPress={() => router.push("/forgot-password")}
-              style={styles.forgotPassBtn}
-            >
-              <Text style={[styles.forgotPassText, isDarkMode && { color: Colors.dark.textSub }]}>Trouble signing in?</Text>
-            </Pressable>
           </View>
 
           {error ? (
@@ -137,7 +190,7 @@ export default function LoginScreen() {
           ) : null}
 
           <SoftButton
-            title={loading ? "Authenticating..." : "Sign In to Dashboard"}
+            title={loading ? "Authenticating..." : "Member Login"}
             onPress={handleAction}
             loading={loading}
             style={styles.actionBtn}
@@ -146,7 +199,7 @@ export default function LoginScreen() {
 
         <View style={styles.footer}>
            <Text style={[styles.footerText, isDarkMode && { color: Colors.dark.textMuted }]}>
-             Precision manpower management. Version 2.4.0
+             Mobile Access Preferred
            </Text>
         </View>
       </ScrollView>
