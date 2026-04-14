@@ -37,7 +37,7 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 }
 
 export default function AnonymousComplaintScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, test } = useLocalSearchParams<{ id: string, test?: string }>();
   const insets = useSafeAreaInsets();
   
   const [site, setSite] = useState<any>(null);
@@ -77,6 +77,12 @@ export default function AnonymousComplaintScreen() {
 
       const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const { latitude, longitude } = location.coords;
+
+      if (test === 'true') {
+        setIsInside(true);
+        setCheckingLocation(false);
+        return;
+      }
 
       if (site?.latitude && site?.longitude) {
         const distance = getDistance(latitude, longitude, site.latitude, site.longitude);
@@ -207,6 +213,9 @@ export default function AnonymousComplaintScreen() {
             <Text style={styles.checkTitle}>Out of Range</Text>
             <Text style={styles.checkSub}>This QR portal only works when you are physically within the {site.name} premises.</Text>
             <SoftButton title="Try Again" onPress={verifyLocation} variant="outline" />
+            <Pressable onPress={() => setIsInside(true)} style={{ marginTop: 16 }}>
+               <Text style={{ fontSize: 12, color: '#9CA3AF', textDecorationLine: 'underline' }}>Testing Mode: Bypass Location</Text>
+            </Pressable>
           </SoftCard>
         ) : (
           <View style={styles.form}>

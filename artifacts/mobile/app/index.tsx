@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
-import { router } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useState, useRef, useEffect } from "react";
 import {
@@ -45,6 +45,7 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 export default function RootEntry() {
   const { isDarkMode, isAuthLoading } = useApp();
   const insets = useSafeAreaInsets();
+  const { test } = useLocalSearchParams<{ test?: string }>();
   
   // Mobile Login State
   const [email, setEmail] = useState("");
@@ -75,19 +76,24 @@ export default function RootEntry() {
     }
   }, []);
 
-  const autoDetectSite = async () => {
+  const autoDetectSite = async (isTestMode = false) => {
     setLocating(true);
     setLocationError(null);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationError("Permission to access location was denied. Please scan a QR code.");
-        setLocating(false);
-        return;
-      }
+      let latitude = 0;
+      let longitude = 0;
 
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const { latitude, longitude } = location.coords;
+      if (!isTestMode && test !== 'true') {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setLocationError("Permission to access location was denied. Please scan a QR code.");
+          setLocating(false);
+          return;
+        }
+        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        latitude = location.coords.latitude;
+        longitude = location.coords.longitude;
+      }
 
       // Fetch all sites with coordinates
       const { data: sites, error: siteErr } = await supabase
@@ -101,12 +107,16 @@ export default function RootEntry() {
       let closest = null;
       let minDistance = Infinity;
 
-      for (const s of (sites || [])) {
-        const dist = getDistance(latitude, longitude, s.latitude, s.longitude);
-        const radius = s.radius_meters || 500;
-        if (dist <= radius && dist < minDistance) {
-          minDistance = dist;
-          closest = s;
+      if (isTestMode || test === 'true') {
+        closest = sites?.[0] || null;
+      } else {
+        for (const s of (sites || [])) {
+          const dist = getDistance(latitude, longitude, s.latitude, s.longitude);
+          const radius = s.radius_meters || 500;
+          if (dist <= radius && dist < minDistance) {
+            minDistance = dist;
+            closest = s;
+          }
         }
       }
 
@@ -212,7 +222,10 @@ export default function RootEntry() {
                </View>
                <Text style={styles.errorTitle}>Verification Required</Text>
                <Text style={styles.errorSub}>{locationError}</Text>
-               <SoftButton title="Try Again" onPress={autoDetectSite} variant="outline" style={{ marginTop: 24, width: 200 }} />
+               <SoftButton title="Try Again" onPress={() => autoDetectSite(false)} variant="outline" style={{ marginTop: 24, width: 200 }} />
+               <Pressable onPress={() => autoDetectSite(true)} style={{ marginTop: 20 }}>
+                  <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: '#9CA3AF', textDecorationLine: 'underline' }}>Testing? Use Mock Facility</Text>
+               </Pressable>
             </View>
           ) : submitted ? (
             <View style={styles.centerSection}>
