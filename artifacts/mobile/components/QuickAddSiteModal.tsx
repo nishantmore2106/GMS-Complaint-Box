@@ -22,6 +22,7 @@ interface QuickAddSiteModalProps {
   setClientPhone: (text: string) => void;
   clientPass: string;
   setClientPass: (text: string) => void;
+  clientPhoto: string | null;
   onPickPhoto: () => void;
   loading: boolean;
   onSave: () => void;
@@ -32,6 +33,7 @@ interface QuickAddSiteModalProps {
 }
 
 export function QuickAddSiteModal({
+  visible, onClose, name, setName, location, setLocation, supEmail, setSupEmail,
   clientName, setClientName, clientEmail, setClientEmail, clientPhone, setClientPhone,
   clientPass, setClientPass, clientPhoto, onPickPhoto, loading, onSave,
   onMarkLocation, onOpenMap, lat, long

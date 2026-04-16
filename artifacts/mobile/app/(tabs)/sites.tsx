@@ -45,27 +45,7 @@ export default function SitesTabScreen() {
   const role = currentUser?.role;
   
   const [search, setSearch] = useState("");
-  const [isAddModalVisible, setIsAddModalVisible] = useState(false);
-  
-  // Add Site Form State
-  const [newName, setNewName] = useState("");
-  const [newLocation, setNewLocation] = useState("");
-  const [newSupEmail, setNewSupEmail] = useState("");
-  const [newClientName, setNewClientName] = useState("");
-  const [newClientPhone, setNewClientPhone] = useState("");
-  const [newClientEmail, setNewClientEmail] = useState("");
-  const [newClientPassword, setNewClientPassword] = useState("");
-  const [newClientPhoto, setNewClientPhoto] = useState("");
-  const [newAuthority, setNewAuthority] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMapVisible, setIsMapVisible] = useState(false);
-  const [newLat, setNewLat] = useState("");
-  const [newLong, setNewLong] = useState("");
-
-  const locationRef = useRef<TextInput>(null);
-  const clientNameRef = useRef<TextInput>(null);
-  const clientEmailRef = useRef<TextInput>(null);
-  const supEmailRef = useRef<TextInput>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const pickClientImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -100,44 +80,6 @@ export default function SitesTabScreen() {
     });
   }, [sites, search, users, role, currentUser]);
 
-  const handleAddSite = async () => {
-    if (!newName.trim() || !newLocation.trim()) {
-      showToast("Site name and location are required", "error");
-      return;
-    }
-    setIsSubmitting(true);
-    try {
-      let supId = null;
-      if (newSupEmail.trim()) {
-        const existingUser = users.find((u) => u.email?.toLowerCase() === newSupEmail.toLowerCase() && u.role === 'supervisor');
-        if (existingUser) supId = existingUser.id;
-      }
-      const site = await createSite({
-        name: newName,
-        companyId,
-        address: newLocation,
-        clientName: newClientName,
-        clientPhone: newClientPhone,
-        authorityName: newAuthority,
-        supervisorId: supId || undefined,
-        latitude: newLat ? parseFloat(newLat) : undefined,
-        longitude: newLong ? parseFloat(newLong) : undefined,
-        radius: 200
-      });
-      if (newClientEmail) {
-        await provisionClient(site.id, newClientEmail, newClientName || newName + " Client", newClientPassword, newClientPhoto, companyId);
-      }
-      showToast("Site added successfully", "success");
-      setIsAddModalVisible(false);
-      setNewClientPassword(""); setNewClientPhoto(""); setNewAuthority("");
-      setNewLat(""); setNewLong("");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e: any) {
-      showToast(e.message || "Failed to add site", "error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const renderSiteItem = ({ item: s }: { item: any }) => {
     const sc = complaints.filter((c) => c.siteId === s.id);
@@ -226,39 +168,18 @@ export default function SitesTabScreen() {
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl 
-            refreshing={false} 
+            refreshing={isRefreshing} 
             onRefresh={async () => {
+              setIsRefreshing(true);
               await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               await refreshData();
+              setIsRefreshing(false);
             }} 
             tintColor={isDarkMode ? 'white' : Colors.primary} 
           />
         }
       />
 
-      <Modal visible={isAddModalVisible} animationType="slide" transparent>
-         <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, isDarkMode && styles.darkCard]}>
-               <View style={styles.modalHeader}>
-                  <Text style={[styles.modalTitle, isDarkMode && styles.darkText]}>Add Site</Text>
-                  <Pressable onPress={() => setIsAddModalVisible(false)} style={styles.closeBtn}>
-                     <Feather name="x" size={20} color={isDarkMode ? "white" : "#6B7280"} />
-                  </Pressable>
-               </View>
-               <ScrollView contentContainerStyle={styles.modalForm} showsVerticalScrollIndicator={false}>
-                  <SoftInput label="Site Name" placeholder="e.g. Skyline Towers" value={newName} onChangeText={setNewName} isDarkMode={isDarkMode} returnKeyType="next" onSubmitEditing={() => locationRef.current?.focus()} />
-                  <SoftInput ref={locationRef} label="Location" placeholder="Full address" value={newLocation} onChangeText={setNewLocation} isDarkMode={isDarkMode} returnKeyType="next" onSubmitEditing={() => clientNameRef.current?.focus()} />
-                  <SoftInput ref={clientNameRef} label="Client Name" value={newClientName} onChangeText={setNewClientName} isDarkMode={isDarkMode} returnKeyType="next" onSubmitEditing={() => clientEmailRef.current?.focus()} />
-                  <SoftInput ref={clientEmailRef} label="Client Email" value={newClientEmail} onChangeText={setNewClientEmail} isDarkMode={isDarkMode} keyboardType="email-address" autoCapitalize="none" returnKeyType="next" onSubmitEditing={() => supEmailRef.current?.focus()} />
-                  <SoftInput ref={supEmailRef} label="Supervisor Email" value={newSupEmail} onChangeText={setNewSupEmail} isDarkMode={isDarkMode} keyboardType="email-address" autoCapitalize="none" returnKeyType="done" onSubmitEditing={handleAddSite} />
-               </ScrollView>
-               <View style={styles.modalFooter}>
-                  <SoftButton title="Cancel" variant="secondary" onPress={() => setIsAddModalVisible(false)} style={{ flex: 1 }} isDarkMode={isDarkMode} />
-                  <SoftButton title={isSubmitting ? "Creating..." : "Add Site"} onPress={handleAddSite} loading={isSubmitting} style={{ flex: 2 }} isDarkMode={isDarkMode} />
-               </View>
-            </View>
-         </View>
-      </Modal>
     </View>
   );
 }
