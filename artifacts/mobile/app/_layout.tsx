@@ -191,21 +191,18 @@ function RootLayoutNav() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <>
       <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
         <Stack.Screen name="index" />
         
-        {Platform.OS !== 'web' && (
-          <>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="admin/supervisors" options={{ headerShown: false }} />
-            <Stack.Screen name="admin/index" options={{ headerShown: false }} />
-            <Stack.Screen name="admin/companies" options={{ headerShown: false }} />
-            <Stack.Screen name="admin/company-new" options={{ headerShown: false }} />
-            <Stack.Screen name="admin/site-new" options={{ headerShown: false }} />
-            <Stack.Screen name="admin/site/[id]" options={{ headerShown: false }} />
-          </>
-        )}
+        {/* Mobile-Only Screens */}
+        {Platform.OS !== 'web' && <Stack.Screen name="(tabs)" options={{ headerShown: false }} />}
+        {Platform.OS !== 'web' && <Stack.Screen name="admin/supervisors" options={{ headerShown: false }} />}
+        {Platform.OS !== 'web' && <Stack.Screen name="admin/index" options={{ headerShown: false }} />}
+        {Platform.OS !== 'web' && <Stack.Screen name="admin/companies" options={{ headerShown: false }} />}
+        {Platform.OS !== 'web' && <Stack.Screen name="admin/company-new" options={{ headerShown: false }} />}
+        {Platform.OS !== 'web' && <Stack.Screen name="admin/site-new" options={{ headerShown: false }} />}
+        {Platform.OS !== 'web' && <Stack.Screen name="admin/site/[id]" options={{ headerShown: false }} />}
 
         <Stack.Screen name="complaint/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="complaint/new" options={{ headerShown: false, presentation: "modal" }} />
@@ -214,7 +211,7 @@ function RootLayoutNav() {
       </Stack>
       <MaintenanceOverlay />
       <OfflineBanner />
-    </View>
+    </>
   );
 }
 
@@ -338,4 +335,4 @@ const styles = StyleSheet.create({
   }
 });
 
-export default Sentry.wrap(RootLayout);
+export default RootLayout;

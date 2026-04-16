@@ -12,8 +12,22 @@ export function NotificationListener() {
   useEffect(() => {
     if (!currentUser) return;
 
-    // We listen to updates on the complaints table
-    const channel = supabase
+    // 1. Listen for standard notification history inserts (The "Pop-up" System)
+    const notifChannel = supabase
+      .channel("public:notifications")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${currentUser.id}` },
+        (payload) => {
+          const newNotif = payload.new;
+          showToast(newNotif.message || newNotif.title, "info");
+          refreshData(); // Sync dashboards
+        }
+      )
+      .subscribe();
+
+    // 2. Listen for complaint status updates
+    const complaintChannel = supabase
       .channel("public:complaints")
       .on(
         "postgres_changes",
@@ -22,27 +36,17 @@ export function NotificationListener() {
           const newComplaint = payload.new;
           const oldComplaint = payload.old;
 
-          // If the status changed
           if (newComplaint.status !== oldComplaint.status) {
-            
             // For Clients: Notify them about their own complaints
             if (currentUser.role === "client" && newComplaint.client_id === currentUser.id) {
               if (newComplaint.status === "in_progress") {
-                showToast("Supervisor is on the way to resolve your issue!", "info");
-                // Navigate to details if they want to track live
+                showToast("Supervisor has arrived to resolve your issue!", "info");
                 router.push({ pathname: "/complaint/[id]", params: { id: newComplaint.id } });
               } else if (newComplaint.status === "resolved") {
-                showToast("Your complaint has been marked as resolved by the team!", "success");
+                showToast("Your complaint has been marked as resolved!", "success");
                 router.push({ pathname: "/complaint/[id]", params: { id: newComplaint.id } });
               }
             }
-            
-            // Optional: For Founders, maybe a quick toast that a complaint progressed?
-            // if (currentUser.role === "founder" && newComplaint.company_id === currentUser.companyId) {
-            //   showToast(`A complaint at ${newComplaint.site_name || 'a site'} is now ${newComplaint.status}`, "info");
-            // }
-
-            // Whenever a relevant change happens, refresh the global data
             refreshData();
           }
         }
@@ -61,7 +65,8 @@ export function NotificationListener() {
     });
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(notifChannel);
+      supabase.removeChannel(complaintChannel);
       subscription.remove();
     };
   }, [currentUser, showToast, refreshData]);

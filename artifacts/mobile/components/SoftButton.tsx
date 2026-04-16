@@ -1,5 +1,4 @@
 import { Text, StyleSheet, Pressable, ViewStyle, TextStyle, ActivityIndicator, StyleProp } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../constants/colors';
 
 interface SoftButtonProps {
@@ -29,11 +28,11 @@ export const SoftButton = ({
   const Content = () => (
     <>
       {loading ? (
-        <ActivityIndicator color={isPrimary ? '#FFF' : (isDarkMode ? 'white' : '#111827')} size="small" />
+        <ActivityIndicator color={isPrimary ? '#0F172A' : (isDarkMode ? 'white' : '#111827')} size="small" />
       ) : (
         <Text style={[
           styles.text, 
-          !isPrimary && { color: isDarkMode ? 'white' : '#111827' },
+          !isPrimary && { color: isDarkMode ? 'white' : '#475569' },
           textStyle
         ]}>
           {title}
@@ -49,19 +48,13 @@ export const SoftButton = ({
         disabled={disabled || loading}
         style={({ pressed }) => [
           styles.button,
-          { opacity: (disabled || loading) ? 0.6 : (pressed ? 0.9 : 1) },
+          styles.primaryButton,
+          { opacity: (disabled || loading) ? 0.6 : (pressed ? 0.95 : 1) },
           styles.shadow,
           style
         ]}
       >
-        <LinearGradient
-          colors={['#111827', '#1F2937'] as [string, string]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.gradient}
-        >
-          <Content />
-        </LinearGradient>
+        <Content />
       </Pressable>
     );
   }
@@ -72,10 +65,10 @@ export const SoftButton = ({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
-        !isOutline && { backgroundColor: isDarkMode ? '#2D3748' : '#F3F4F6' },
+        !isOutline && { backgroundColor: isDarkMode ? '#1E293B' : '#F8FAFC', borderColor: '#E2E8F0', borderWidth: 1 },
         isOutline && { 
-          borderWidth: 1.5, 
-          borderColor: isDarkMode ? '#4A5568' : '#F3F4F6', 
+          borderWidth: 1, 
+          borderColor: isDarkMode ? '#334155' : '#CBD5E1', 
           backgroundColor: isDarkMode ? 'transparent' : '#FFFFFF' 
         },
         { opacity: (disabled || loading) ? 0.6 : (pressed ? 0.9 : 1) },
@@ -89,29 +82,28 @@ export const SoftButton = ({
 
 const styles = StyleSheet.create({
   button: {
-    height: 58,
-    borderRadius: 100, // Pill shape
+    height: 52,
+    borderRadius: 12, // Professional rounded rectangle
     justifyContent: 'center',
     alignItems: 'center',
-    overflow: 'hidden',
+    flexDirection: 'row',
   },
-  gradient: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
+  primaryButton: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#0F172A',
   },
   text: {
-    color: '#FFF',
-    fontSize: 16,
-    fontFamily: 'Inter_800ExtraBold',
+    color: '#0F172A',
+    fontSize: 15,
+    fontFamily: 'Inter_700Bold',
     letterSpacing: -0.2,
   },
   shadow: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   }
 });

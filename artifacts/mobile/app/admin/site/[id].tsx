@@ -13,6 +13,7 @@ import { SoftButton } from '@/components/SoftButton';
 import { SoftInput } from '@/components/SoftInput';
 import { DashboardHeader } from '@/components/DashboardHeader';
 import { MapPicker } from '@/components/MapPicker';
+import * as Location from 'expo-location';
 
 export default function SiteDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -139,6 +140,37 @@ export default function SiteDetailScreen() {
      if (!editName && data.address) {
         setEditName(data.address.split(',')[0]);
      }
+  };
+
+  const handleMarkCurrentLocation = async () => {
+    setIsSaving(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert("Permission Refused", "GPS access is required to mark site location.");
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const { latitude, longitude } = location.coords;
+      
+      setEditLat(String(latitude));
+      setEditLong(String(longitude));
+      
+      const [addr] = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (addr) {
+        const fullAddr = [addr.name, addr.street, addr.district, addr.city, addr.region].filter(Boolean).join(", ");
+        setEditAddress(fullAddr);
+        if (!editName) setEditName(addr.name || addr.street || site.name);
+      }
+      
+      showToast("Location updated from GPS!");
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (err: any) {
+      Alert.alert("GPS Error", err.message || "Failed to fetch GPS coordinates.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -367,13 +399,23 @@ export default function SiteDetailScreen() {
                     <View style={{ gap: 24, padding: 4 }}>
                        <SoftInput label="Site Nomenclature" value={editName} onChangeText={setEditName} icon="type" isDarkMode={isDarkMode} returnKeyType="next" onSubmitEditing={() => addressRef.current?.focus()} />
                        
-                       <View style={styles.mapActionRow}>
-                          <Text style={[styles.sectionLabel, { marginLeft: 0, marginBottom: 0 }]}>Geographic Intel</Text>
-                          <Pressable style={styles.inlineMapBtn} onPress={() => setIsMapVisible(true)}>
-                             <Feather name="map" size={14} color="white" />
-                             <Text style={styles.inlineMapBtnText}>Pick from Google Maps</Text>
-                          </Pressable>
-                       </View>
+                       <View style={[styles.mapActionRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 12 }]}>
+                           <Text style={[styles.sectionLabel, { marginLeft: 0, marginBottom: 0 }]}>Geographic Intel</Text>
+                           <ScrollView 
+                              horizontal 
+                              showsHorizontalScrollIndicator={false} 
+                              contentContainerStyle={{ gap: 8, paddingRight: 16 }}
+                           >
+                              <Pressable style={styles.inlineMapBtn} onPress={handleMarkCurrentLocation}>
+                                 <Feather name="crosshair" size={14} color="white" />
+                                 <Text style={styles.inlineMapBtnText}>Mark My Location</Text>
+                              </Pressable>
+                              <Pressable style={[styles.inlineMapBtn, { backgroundColor: '#4B5563' }]} onPress={() => setIsMapVisible(true)}>
+                                 <Feather name="map" size={14} color="white" />
+                                 <Text style={styles.inlineMapBtnText}>Pick from Google Maps</Text>
+                              </Pressable>
+                           </ScrollView>
+                        </View>
 
                        <SoftInput 
                           ref={addressRef} 

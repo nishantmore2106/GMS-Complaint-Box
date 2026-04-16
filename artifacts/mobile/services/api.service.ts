@@ -107,10 +107,13 @@ export const ApiService = {
     // 🛡️ ROLE-BASED ISOLATION (Defense in Depth)
     if (role === 'client' && userId) {
       console.log("[ApiService] Applying Client-level isolation filters...");
-      // Clients only see sites they are associated with (if applicable)
-      // and only their own complaints.
-      compQueryBuilder = compQueryBuilder.eq("client_id", userId);
-      siteQueryBuilder = siteQueryBuilder.eq("client_id", userId); // Assuming sites have client_id
+      // 1. Get IDs of sites belonging to this client
+      const { data: clientSites } = await supabase.from("sites").select("id").eq("client_id", userId);
+      const siteIds = clientSites?.map(s => s.id) || [];
+      
+      // 2. Filter complaints and sites by these IDs
+      compQueryBuilder = compQueryBuilder.in("site_id", siteIds);
+      siteQueryBuilder = siteQueryBuilder.in("id", siteIds);
     }
     
     const siteQuery = this.fetchWithTimeout(

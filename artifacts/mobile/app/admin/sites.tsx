@@ -25,6 +25,7 @@ import * as Haptics from 'expo-haptics';
 import { useToast } from "@/components/Toast";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { MapPicker } from "@/components/MapPicker";
+import * as Location from "expo-location";
 
 export default function SitesManagementScreen() {
   const { 
@@ -116,6 +117,37 @@ export default function SitesManagementScreen() {
     setNewLocation(data.address);
     if (!newName && data.address) {
       setNewName(data.address.split(',')[0]);
+    }
+  };
+
+  const handleMarkCurrentLocation = async () => {
+    setIsSubmitting(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert("Permission Refused", "GPS access is required to mark site location.");
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const { latitude, longitude } = location.coords;
+      
+      setNewLat(String(latitude));
+      setNewLong(String(longitude));
+      
+      const [addr] = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (addr) {
+        const fullAddr = [addr.name, addr.street, addr.district, addr.city, addr.region].filter(Boolean).join(", ");
+        setNewLocation(fullAddr);
+        if (!newName) setNewName(addr.name || addr.street || "New Facility");
+      }
+      
+      showToast("Location updated from GPS!", "success");
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (err: any) {
+      Alert.alert("GPS Error", err.message || "Failed to fetch GPS coordinates.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -330,12 +362,18 @@ export default function SitesManagementScreen() {
                        isDarkMode={isDarkMode}
                     />
 
-                    <View style={styles.mapActionRow}>
+                    <View style={{ marginTop: 12, gap: 12 }}>
                        <Text style={[styles.sectionHeading, { marginBottom: 0 }]}>Geographic Intel</Text>
-                       <Pressable style={styles.inlineMapBtn} onPress={() => setIsMapVisible(true)}>
-                          <Feather name="map" size={14} color="white" />
-                          <Text style={styles.inlineMapBtnText}>Pick from Google Maps</Text>
-                       </Pressable>
+                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          <Pressable style={styles.inlineMapBtn} onPress={handleMarkCurrentLocation}>
+                             <Feather name="crosshair" size={14} color="white" />
+                             <Text style={styles.inlineMapBtnText}>Mark My Location</Text>
+                          </Pressable>
+                          <Pressable style={[styles.inlineMapBtn, { backgroundColor: '#4B5563' }]} onPress={() => setIsMapVisible(true)}>
+                             <Feather name="map" size={14} color="white" />
+                             <Text style={styles.inlineMapBtnText}>Pick from Google Maps</Text>
+                          </Pressable>
+                       </View>
                     </View>
 
                     <SoftInput 

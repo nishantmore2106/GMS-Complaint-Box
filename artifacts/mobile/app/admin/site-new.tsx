@@ -21,6 +21,7 @@ import { useApp } from "@/context/AppContext";
 import { useToast } from "@/components/Toast";
 import { MapPicker } from "@/components/MapPicker";
 import { SoftInput } from "@/components/SoftInput";
+import * as Location from "expo-location";
 
 export default function NewSiteScreen() {
   const { createSite, companies, users, currentUser, provisionClient, notifications, profileImage, sites } = useApp();
@@ -64,6 +65,38 @@ export default function NewSiteScreen() {
     // If name is empty, try to use address snippet as name
     if (!name && data.address) {
       setName(data.address.split(',')[0]);
+    }
+  };
+
+  const handleMarkCurrentLocation = async () => {
+    setLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert("Permission Refused", "GPS access is required to mark your location automatically.");
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const { latitude, longitude } = location.coords;
+      
+      setLatitude(String(latitude));
+      setLongitude(String(longitude));
+      
+      // Reverse Geocode
+      const [addr] = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (addr) {
+        const fullAddr = [addr.name, addr.street, addr.district, addr.city, addr.region].filter(Boolean).join(", ");
+        setAddress(fullAddr);
+        if (!name) setName(addr.name || addr.street || "New Site");
+      }
+      
+      showToast("Location captured from GPS!");
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (err: any) {
+      Alert.alert("GPS Error", err.message || "Could not fetch current location.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -185,12 +218,22 @@ export default function NewSiteScreen() {
                 onSubmitEditing={() => phoneRef.current?.focus()}
               />
 
-              <View style={styles.mapActionRow}>
-                 <Text style={styles.inlineHint}>Mark exact location for geofencing</Text>
-                 <Pressable style={styles.inlineMapBtn} onPress={() => setIsMapVisible(true)}>
-                    <Feather name="map" size={14} color="white" />
-                    <Text style={styles.inlineMapBtnText}>Pick from Google Maps</Text>
-                 </Pressable>
+              <View style={[styles.mapActionRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 12 }]}>
+                 <Text style={[styles.inlineHint, { marginBottom: 0 }]}>Geographic Intel</Text>
+                 <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false} 
+                    contentContainerStyle={{ gap: 8, paddingRight: 16 }}
+                 >
+                   <Pressable style={styles.inlineMapBtn} onPress={handleMarkCurrentLocation}>
+                      <Feather name="crosshair" size={14} color="white" />
+                      <Text style={styles.inlineMapBtnText}>Mark My Location</Text>
+                   </Pressable>
+                   <Pressable style={[styles.inlineMapBtn, { backgroundColor: '#4B5563' }]} onPress={() => setIsMapVisible(true)}>
+                      <Feather name="map" size={14} color="white" />
+                      <Text style={styles.inlineMapBtnText}>Pick from Google Maps</Text>
+                   </Pressable>
+                 </ScrollView>
               </View>
 
               <View style={styles.inputGroup}>

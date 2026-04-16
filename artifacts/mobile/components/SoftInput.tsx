@@ -14,12 +14,13 @@ interface SoftInputProps extends TextInputProps {
 }
 
 export const SoftInput = React.forwardRef<TextInput, SoftInputProps>(
-  ({ label, icon, rightIcon, onRightIconPress, error, containerStyle, isDarkMode, ...props }, ref) => {
+  ({ label, icon, rightIcon, onRightIconPress, error, containerStyle, isDarkMode, multiline, ...props }, ref) => {
     return (
       <View style={[styles.wrapper, containerStyle]}>
         {label && <Text style={[styles.label, isDarkMode && { color: Colors.dark.textMuted }]}>{label}</Text>}
         <View style={[
           styles.container, 
+          multiline && styles.containerMultiline,
           isDarkMode && { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border },
           error ? styles.containerError : null
         ]}>
@@ -27,14 +28,15 @@ export const SoftInput = React.forwardRef<TextInput, SoftInputProps>(
             <Feather 
               name={icon} 
               size={18} 
-              color={error ? '#EF4444' : (isDarkMode ? Colors.dark.textMuted : '#9CA3AF')} 
-              style={styles.icon} 
+              color={error ? '#EF4444' : (isDarkMode ? Colors.dark.textMuted : '#94A3B8')} 
+              style={[styles.icon, multiline && { marginTop: 4 }]} 
             />
           )}
           <TextInput
             ref={ref}
-            placeholderTextColor={isDarkMode ? Colors.dark.textMuted : "#9CA3AF"}
-            style={[styles.input, isDarkMode && { color: Colors.dark.text }]}
+            multiline={multiline}
+            placeholderTextColor={isDarkMode ? Colors.dark.textMuted : "#94A3B8"}
+            style={[styles.input, multiline && styles.inputMultiline, isDarkMode && { color: Colors.dark.text }]}
             {...props}
             keyboardAppearance={isDarkMode ? 'dark' : 'light'}
           />
@@ -62,26 +64,35 @@ export const SoftInput = React.forwardRef<TextInput, SoftInputProps>(
 
 const styles = StyleSheet.create({
   wrapper: {
-    gap: 8,
+    gap: 6,
     width: '100%',
   },
   label: {
     fontSize: 12,
-    fontFamily: 'Inter_800ExtraBold',
-    color: '#6B7280',
-    marginLeft: 16,
+    fontFamily: 'Inter_700Bold',
+    color: '#475569',
+    marginLeft: 4,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   container: {
-    height: 58,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 100, // Pill shape
+    minHeight: 52,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24, // Wider horizontal padding for pill
+    paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.02)',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  containerMultiline: {
+    alignItems: 'flex-start',
+    paddingVertical: 12,
   },
   containerError: {
     backgroundColor: '#FEF2F2',
@@ -94,19 +105,24 @@ const styles = StyleSheet.create({
     padding: 8,
     marginRight: -4,
     backgroundColor: 'rgba(0,0,0,0.03)',
-    borderRadius: 12,
+    borderRadius: 8,
   },
   input: {
     flex: 1,
-    color: '#111827',
+    color: '#0F172A',
     fontSize: 16,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'Inter_500Medium',
+    minHeight: 24, // Enough for one line
+  },
+  inputMultiline: {
     height: '100%',
+    textAlignVertical: 'top',
+    minHeight: 80,
   },
   errorText: {
     fontSize: 11,
     fontFamily: 'Inter_600SemiBold',
     color: '#EF4444',
-    marginLeft: 16,
+    marginLeft: 4,
   }
 });

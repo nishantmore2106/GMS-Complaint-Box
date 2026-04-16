@@ -22,16 +22,19 @@ interface QuickAddSiteModalProps {
   setClientPhone: (text: string) => void;
   clientPass: string;
   setClientPass: (text: string) => void;
-  clientPhoto: string | null;
   onPickPhoto: () => void;
   loading: boolean;
   onSave: () => void;
+  onMarkLocation?: () => void;
+  onOpenMap?: () => void;
+  lat?: string;
+  long?: string;
 }
 
 export function QuickAddSiteModal({
-  visible, onClose, name, setName, location, setLocation, supEmail, setSupEmail,
   clientName, setClientName, clientEmail, setClientEmail, clientPhone, setClientPhone,
-  clientPass, setClientPass, clientPhoto, onPickPhoto, loading, onSave
+  clientPass, setClientPass, clientPhoto, onPickPhoto, loading, onSave,
+  onMarkLocation, onOpenMap, lat, long
 }: QuickAddSiteModalProps) {
   // Refs for keyboard navigation
   const locationRef = useRef<TextInput>(null);
@@ -64,6 +67,32 @@ export function QuickAddSiteModal({
               onSubmitEditing={() => locationRef.current?.focus()}
               blurOnSubmit={false}
             />
+
+            <View style={{ marginTop: 8, marginBottom: 8 }}>
+              <Text style={styles.formSectionTitle}>Geographic Intel</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                <Pressable 
+                  style={styles.locationActionBtn} 
+                  onPress={onMarkLocation}
+                >
+                  <Feather name="crosshair" size={14} color="white" />
+                  <Text style={styles.locationActionBtnText}>Mark My Location</Text>
+                </Pressable>
+                <Pressable 
+                  style={[styles.locationActionBtn, { backgroundColor: '#475569' }]} 
+                  onPress={onOpenMap}
+                >
+                  <Feather name="map" size={14} color="white" />
+                  <Text style={styles.locationActionBtnText}>Pick from Map</Text>
+                </Pressable>
+              </View>
+              {(lat && long) ? (
+                <Text style={styles.coordinateLabel}>
+                  GPS Locked: {parseFloat(lat).toFixed(5)}, {parseFloat(long).toFixed(5)}
+                </Text>
+              ) : null}
+            </View>
+
             <SoftInput 
               ref={locationRef}
               label="Location" 
@@ -177,4 +206,31 @@ const styles = StyleSheet.create({
   photoPlaceholder: { alignItems: 'center' },
   photoText: { fontSize: 12, color: Colors.textMuted, marginTop: 5 },
   previewImage: { width: '100%', height: '100%' },
+  locationActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#146A65', // Teal matching branding
+    paddingVertical: 12,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  locationActionBtnText: {
+    color: 'white',
+    fontSize: 12,
+    fontFamily: 'Inter_700Bold',
+  },
+  coordinateLabel: {
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#059669',
+    marginTop: 8,
+    marginLeft: 4,
+  }
 });

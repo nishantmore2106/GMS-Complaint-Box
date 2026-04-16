@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import { useLocalSearchParams, router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import Animated, { FadeIn, SlideInRight, SlideOutLeft, Layout } from "react-native-reanimated";
 import React, { useState, useRef, useEffect } from "react";
 import {
   Keyboard,
@@ -61,6 +62,10 @@ export default function RootEntry() {
   const [locating, setLocating] = useState(Platform.OS === 'web');
   const [locationError, setLocationError] = useState<string | null>(null);
   
+  // Wizard State
+  const [step, setStep] = useState(1);
+  const totalSteps = 3;
+
   // Form State (shared with [id].tsx logic)
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -95,12 +100,10 @@ export default function RootEntry() {
         longitude = location.coords.longitude;
       }
 
-      // Fetch all sites with coordinates
-      const { data: sites, error: siteErr } = await supabase
-        .from('sites')
-        .select('*')
-        .not('latitude', 'is', null)
-        .not('longitude', 'is', null);
+      // Fetch all sites
+      const { data: sites, error: siteErr } = isTestMode || test === 'true'
+        ? await supabase.from('sites').select('*')
+        : await supabase.from('sites').select('*').not('latitude', 'is', null).not('longitude', 'is', null);
 
       if (siteErr) throw siteErr;
 
@@ -123,7 +126,7 @@ export default function RootEntry() {
       if (closest) {
         setDetectedSite(closest);
       } else {
-        setLocationError("No nearby GMS facility detected. Please scan the QR code in the room.");
+        setLocationError("No nearby facility detected. Please scan the QR code in the room.");
       }
     } catch (err: any) {
       console.error("AutoDetect error:", err);
@@ -134,16 +137,41 @@ export default function RootEntry() {
   };
 
   const handleSubmit = async () => {
+    console.log("[WebSubmit] handleSubmit TRIGGERED");
+    
+    // 1. SET STATE IMMEDIATELY - Ensure spinner shows up
+    setIsSubmitting(true);
+    
+    // 2. Perform validation after setting state (so spinner shows)
     if (!name || !description) {
+      console.log("[WebSubmit] Validation failed:", { name: !!name, desc: !!description });
+      setIsSubmitting(false); // Revert since we aren't proceeding
       Alert.alert("Missing Fields", "Please enter your name and issue details.");
       return;
     }
 
-    setIsSubmitting(true);
     try {
+      // 3. Optional Safeties for Haptics on Web
+      try {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (hapticErr) {
+        console.warn("[WebSubmit] Haptics not supported or blocked:", hapticErr);
+      }
+      
+      console.log("[WebSubmit] Payload:", {
+        site_id: detectedSite.id,
+        company_id: detectedSite.company_id,
+        client_id: detectedSite.client_id,
+        supervisor_id: detectedSite.assigned_supervisor_id,
+        category: category,
+        description: description
+      });
+
       const { error } = await supabase.from('complaints').insert([{
         site_id: detectedSite.id,
         company_id: detectedSite.company_id,
+        client_id: detectedSite.client_id,
+        supervisor_id: detectedSite.assigned_supervisor_id,
         category: category,
         subcategory: category === 'Cleaning' ? 'Public Area Cleaning' : 'Improper Behavior',
         description: `${description}\nFloor: ${floor}, Room: ${room}`,
@@ -155,7 +183,16 @@ export default function RootEntry() {
         priority: 'medium'
       }]);
 
-      if (error) throw error;
+      if (error) {
+        console.error("[WebWebSubmit] Supabase Error Details:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        throw error;
+      }
+      console.log("[WebSubmit] Success!");
       
       try {
         await NotificationManager.notifyNewComplaint({
@@ -169,8 +206,12 @@ export default function RootEntry() {
       } catch (e) {}
 
       setSubmitted(true);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setStep(1); // Reset for next time
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (err) {}
     } catch (err: any) {
+      console.error("[WebSubmit] Catch Error:", err);
       Alert.alert("Error", err.message || "Failed to submit.");
     } finally {
       setIsSubmitting(false);
@@ -194,25 +235,23 @@ export default function RootEntry() {
   };
 
   if (Platform.OS === 'web') {
-    const activeGradient = isDarkMode ? Colors.dark.heroGradient : ['#FFFFFF', '#F0F9FF', '#FDF2F8'];
-    const activeBg = isDarkMode ? Colors.dark.bg : '#F8FAFA';
+    const activeBg = isDarkMode ? Colors.dark.bg : '#F8FAFC';
 
     return (
       <View style={[styles.root, { backgroundColor: activeBg }]}>
-        <LinearGradient colors={activeGradient as any} style={StyleSheet.absoluteFill} />
-        <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 50, paddingBottom: 60 }]}>
+        <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 60, paddingBottom: 60 }]}>
           
           {/* Web Header */}
           <View style={styles.webHeader}>
             <View style={styles.logoCircleSmall}>
-               <Feather name="inbox" size={24} color={Colors.primary} />
+               <Feather name="box" size={24} color="#1E3A8A" />
             </View>
             <Text style={styles.webTitle}>GMS Public Portal</Text>
           </View>
 
           {locating ? (
             <View style={styles.centerSection}>
-              <ActivityIndicator size="large" color={Colors.primary} />
+              <ActivityIndicator size="large" color="#1E3A8A" />
               <Text style={styles.statusText}>Detecting Facility...</Text>
             </View>
           ) : locationError ? (
@@ -224,7 +263,7 @@ export default function RootEntry() {
                <Text style={styles.errorSub}>{locationError}</Text>
                <SoftButton title="Try Again" onPress={() => autoDetectSite(false)} variant="outline" style={{ marginTop: 24, width: 200 }} />
                <Pressable onPress={() => autoDetectSite(true)} style={{ marginTop: 20 }}>
-                  <Text style={{ fontSize: 13, fontFamily: 'Inter_700Bold', color: '#9CA3AF', textDecorationLine: 'underline' }}>Testing? Use Mock Facility</Text>
+                  <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#64748B', textDecorationLine: 'underline' }}>Testing? Use Mock Facility</Text>
                </Pressable>
             </View>
           ) : submitted ? (
@@ -234,65 +273,117 @@ export default function RootEntry() {
               </View>
               <Text style={styles.successTitle}>Alert Sent!</Text>
               <Text style={styles.successSub}>
-                Sent to supervisor at {detectedSite.name}. They will arrive shortly.
+                Your report has been dispatched to {detectedSite.name}. A supervisor will assist shortly.
               </Text>
               <SoftButton title="Raise Another" onPress={() => setSubmitted(false)} variant="outline" style={{ marginTop: 24, width: 200 }} />
             </View>
           ) : detectedSite ? (
             <View style={styles.formSection}>
                <View style={styles.siteBanner}>
-                  <Text style={styles.atText}>Current Location:</Text>
-                  <Text style={styles.siteName}>{detectedSite.name}</Text>
+                  <Text style={styles.atText}>Current Location</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <Feather name="map-pin" size={16} color="#1E3A8A" />
+                    <Text style={styles.siteName}>{detectedSite.name}</Text>
+                  </View>
                </View>
 
-               <SoftCard style={styles.webCard}>
-                 <Text style={styles.sectionLabel}>YOUR DETAILS</Text>
-                 <SoftInput placeholder="Your Name" value={name} onChangeText={setName} />
-
-                 <Text style={styles.sectionLabel}>LOCATION DETAILS</Text>
-                 <View style={styles.row}>
-                    <View style={{ flex: 1 }}>
-                       <SoftInput placeholder="Floor" value={floor} onChangeText={setFloor} keyboardType="numeric" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                       <SoftInput placeholder="Room / Area" value={room} onChangeText={setRoom} />
-                    </View>
+               <View style={styles.webCard}>
+                 
+                 {/* Progress Bar */}
+                 <View style={styles.progressContainer}>
+                   <View style={styles.progressTrack}>
+                     <Animated.View 
+                       style={[styles.progressFill, { width: `${(step / totalSteps) * 100}%` }]} 
+                       layout={Layout.springify()}
+                     />
+                   </View>
+                   <Text style={styles.progressText}>Step {step} of {totalSteps}</Text>
                  </View>
 
-                 <Text style={styles.sectionLabel}>ISSUE CATEGORY</Text>
-                 <View style={styles.catGrid}>
-                    <Pressable 
-                      style={[styles.catItem, category === 'Cleaning' && styles.catActive]}
-                      onPress={() => setCategory('Cleaning')}
-                    >
-                      <Feather name="wind" size={18} color={category === 'Cleaning' ? 'white' : '#6B7280'} />
-                      <Text style={[styles.catText, category === 'Cleaning' && { color: 'white' }]}>Cleaning</Text>
-                    </Pressable>
-                    <Pressable 
-                      style={[styles.catItem, category === 'Misbehave' && styles.catActive]}
-                      onPress={() => setCategory('Misbehave')}
-                    >
-                      <Feather name="user-x" size={18} color={category === 'Misbehave' ? 'white' : '#6B7280'} />
-                      <Text style={[styles.catText, category === 'Misbehave' && { color: 'white' }]}>Behavior</Text>
-                    </Pressable>
-                 </View>
+                 {step === 1 && (
+                   <Animated.View entering={SlideInRight} exiting={SlideOutLeft} style={styles.stepContainer}>
+                     <View style={styles.formGroup}>
+                       <Text style={styles.sectionLabel}>WHAT'S THE ISSUE?</Text>
+                       <Text style={styles.stepHint}>Select the category that best describes the problem.</Text>
+                       <View style={styles.catGridBig}>
+                          <Pressable 
+                            style={[styles.catCardBig, category === 'Cleaning' && styles.catCardActive]}
+                            onPress={() => { setCategory('Cleaning'); Haptics.selectionAsync(); setTimeout(() => setStep(2), 300); }}
+                          >
+                            <View style={[styles.catIconWrap, category === 'Cleaning' && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                               <Feather name="wind" size={28} color={category === 'Cleaning' ? 'white' : '#1E3A8A'} />
+                            </View>
+                            <Text style={[styles.catCardTextBig, category === 'Cleaning' && { color: 'white' }]}>Cleaning</Text>
+                            <Text style={[styles.catCardDesc, category === 'Cleaning' && { color: 'rgba(255,255,255,0.8)' }]}>Spills, trash, mess</Text>
+                          </Pressable>
+                          
+                          <Pressable 
+                            style={[styles.catCardBig, category === 'Misbehave' && styles.catCardActive]}
+                            onPress={() => { setCategory('Misbehave'); Haptics.selectionAsync(); setTimeout(() => setStep(2), 300); }}
+                          >
+                            <View style={[styles.catIconWrap, category === 'Misbehave' && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                               <Feather name="shield" size={28} color={category === 'Misbehave' ? 'white' : '#1E3A8A'} />
+                            </View>
+                            <Text style={[styles.catCardTextBig, category === 'Misbehave' && { color: 'white' }]}>Behavior</Text>
+                            <Text style={[styles.catCardDesc, category === 'Misbehave' && { color: 'rgba(255,255,255,0.8)' }]}>Noise, complaints</Text>
+                          </Pressable>
+                       </View>
+                     </View>
+                     
+                     <SoftButton 
+                       title="Next Step" 
+                       onPress={() => setStep(2)} 
+                       style={styles.actionBtn}
+                     />
+                   </Animated.View>
+                 )}
 
-                 <Text style={styles.sectionLabel}>DETAILS</Text>
-                 <SoftInput 
-                   placeholder="Describe what needs attention..." 
-                   value={description} 
-                   onChangeText={setDescription}
-                   multiline
-                   style={{ height: 100 }}
-                 />
+                 {step === 2 && (
+                   <Animated.View entering={SlideInRight} exiting={SlideOutLeft} style={styles.stepContainer}>
+                     <View style={styles.formGroup}>
+                       <Text style={styles.sectionLabel}>EXACT LOCATION</Text>
+                       <Text style={styles.stepHint}>Tell us exactly where our staff should go.</Text>
+                       <SoftInput placeholder="Floor (e.g. Lobby, 4)" value={floor} onChangeText={setFloor} keyboardType="default" containerStyle={{ marginBottom: 12 }} />
+                       <SoftInput placeholder="Room Number or Specific Area" value={room} onChangeText={setRoom} />
+                     </View>
+                     
+                     <View style={styles.buttonRow}>
+                       <SoftButton title="Back" onPress={() => setStep(1)} variant="outline" style={{ flex: 1 }} />
+                       <SoftButton title="Next Step" onPress={() => setStep(3)} style={{ flex: 2 }} />
+                     </View>
+                   </Animated.View>
+                 )}
 
-                 <SoftButton 
-                   title={isSubmitting ? "Dispatching..." : "Contact Site Supervisor"} 
-                   onPress={handleSubmit} 
-                   loading={isSubmitting}
-                   style={{ marginTop: 12 }}
-                 />
-               </SoftCard>
+                 {step === 3 && (
+                   <Animated.View entering={SlideInRight} exiting={SlideOutLeft} style={styles.stepContainer}>
+                     <View style={styles.formGroup}>
+                       <Text style={styles.sectionLabel}>YOUR DETAILS (OPTIONAL)</Text>
+                       <Text style={styles.stepHint}>Provide your name if you'd like us to address you.</Text>
+                       <SoftInput placeholder="Your Name or remain anonymous" value={name} onChangeText={setName} containerStyle={{ marginBottom: 20 }} />
+                       
+                       <Text style={styles.sectionLabel}>DETAILS & DESCRIPTION</Text>
+                       <SoftInput 
+                         placeholder="Describe what needs attention..." 
+                         value={description} 
+                         onChangeText={setDescription}
+                         multiline
+                         style={styles.textArea}
+                       />
+                     </View>
+
+                     <View style={styles.buttonRow}>
+                       <SoftButton title="Back" onPress={() => setStep(2)} variant="outline" style={{ flex: 1 }} />
+                       <SoftButton 
+                         title={isSubmitting ? "Dispatching..." : "Submit Alert"} 
+                         onPress={handleSubmit} 
+                         loading={isSubmitting}
+                         style={{ flex: 2 }}
+                       />
+                     </View>
+                   </Animated.View>
+                 )}
+
+               </View>
             </View>
           ) : null}
 
@@ -306,26 +397,25 @@ export default function RootEntry() {
 
   // Mobile Version
   return (
-    <KeyboardAvoidingView style={[styles.root, { backgroundColor: isDarkMode ? Colors.dark.bg : '#F8FAFA' }]} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <LinearGradient colors={(isDarkMode ? Colors.dark.heroGradient : ['#FFFFFF', '#F0F9FF', '#FDF2F8']) as any} style={StyleSheet.absoluteFill} />
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 40, paddingBottom: 40 }]}>
+    <KeyboardAvoidingView style={[styles.root, { backgroundColor: isDarkMode ? Colors.dark.bg : '#F8FAFC' }]} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 60, paddingBottom: 40 }]}>
         <View style={styles.hero}>
           <View style={[styles.logoContainer, isDarkMode && { backgroundColor: Colors.dark.surface }]}>
-            <Feather name="inbox" size={32} color={isDarkMode ? Colors.dark.accent : Colors.primary} />
+            <Feather name="box" size={36} color={isDarkMode ? Colors.dark.accent : '#1E3A8A'} />
           </View>
           <Text style={[styles.appName, isDarkMode && { color: Colors.dark.text }]}>Staff Terminal</Text>
         </View>
 
-        <SoftCard style={[styles.formCard, isDarkMode && { backgroundColor: Colors.dark.surface }]}>
-          <Text style={[styles.formTitle, isDarkMode && { color: Colors.dark.text }]}>Dashboard</Text>
-          <SoftInput ref={emailRef} icon="mail" placeholder="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
+        <View style={[styles.mobileCard, isDarkMode && { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border }]}>
+          <Text style={[styles.mobileTitle, isDarkMode && { color: Colors.dark.text }]}>Authorized Access</Text>
+          <SoftInput ref={emailRef} icon="mail" placeholder="Email Address" value={email} onChangeText={setEmail} keyboardType="email-address" />
           <SoftInput ref={passwordRef} icon="lock" placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          <SoftButton title={loading ? "Logging in..." : "Member Login"} onPress={handleMobileLogin} loading={loading} />
-        </SoftCard>
+          <SoftButton title={loading ? "Authenticating..." : "Secure Login"} onPress={handleMobileLogin} loading={loading} style={{ marginTop: 8 }} />
+        </View>
 
         <View style={styles.footer}>
-           <Text style={[styles.footerText, isDarkMode && { color: Colors.dark.textMuted }]}>Mobile Access Preferred</Text>
+           <Text style={[styles.footerText, isDarkMode && { color: Colors.dark.textMuted }]}>Company issued devices only</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -334,38 +424,119 @@ export default function RootEntry() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 24 },
-  hero: { alignItems: "center", gap: 16, marginBottom: 32 },
-  logoContainer: { width: 80, height: 80, borderRadius: 24, backgroundColor: 'white', justifyContent: "center", alignItems: "center", elevation: 4 },
-  appName: { fontSize: 24, fontFamily: "Inter_900Black", color: '#111827' },
-  formCard: { gap: 20, padding: 32, borderRadius: 32, backgroundColor: 'white' },
-  formTitle: { fontSize: 20, fontFamily: "Inter_800ExtraBold", color: '#111827', marginBottom: 8 },
+  scroll: { paddingHorizontal: 20 },
+  hero: { alignItems: "center", gap: 16, marginBottom: 40 },
+  logoContainer: { 
+    width: 80, 
+    height: 80, 
+    borderRadius: 20, 
+    backgroundColor: 'white', 
+    justifyContent: "center", 
+    alignItems: "center", 
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    borderWidth: 1,
+    borderColor: '#E2E8F0'
+  },
+  appName: { fontSize: 24, fontFamily: "Inter_800ExtraBold", color: '#0F172A', letterSpacing: -0.5 },
+  mobileCard: { 
+    gap: 16, 
+    padding: 28, 
+    borderRadius: 20, 
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  mobileTitle: { fontSize: 18, fontFamily: "Inter_700Bold", color: '#0F172A', marginBottom: 8 },
   errorText: { color: '#EF4444', fontSize: 13, fontFamily: 'Inter_600SemiBold', textAlign: 'center' },
   footer: { marginTop: 40, alignItems: 'center' },
-  footerText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#9CA3AF' },
+  footerText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#64748B' },
   
   // Web Specific Styles
-  webHeader: { alignItems: 'center', marginBottom: 32, flexDirection: 'row', justifyContent: 'center', gap: 12 },
-  logoCircleSmall: { width: 44, height: 44, borderRadius: 14, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', elevation: 2 },
-  webTitle: { fontSize: 18, fontFamily: 'Inter_800ExtraBold', color: '#111827' },
+  webHeader: { alignItems: 'center', marginBottom: 40, flexDirection: 'row', justifyContent: 'center', gap: 12 },
+  logoCircleSmall: { 
+    width: 48, 
+    height: 48, 
+    borderRadius: 12, 
+    backgroundColor: 'white', 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  webTitle: { fontSize: 20, fontFamily: 'Inter_800ExtraBold', color: '#0F172A', letterSpacing: -0.5 },
   centerSection: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-  statusText: { marginTop: 16, fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#6B7280' },
+  statusText: { marginTop: 16, fontSize: 15, fontFamily: 'Inter_500Medium', color: '#475569' },
   errorIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  errorTitle: { fontSize: 20, fontFamily: 'Inter_800ExtraBold', color: '#111827', marginBottom: 8 },
-  errorSub: { fontSize: 14, color: '#6B7280', textAlign: 'center', maxWidth: 300, lineHeight: 20 },
-  successIconLarge: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#10B981', justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
-  successTitle: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#111827', marginBottom: 12 },
-  successSub: { fontSize: 15, fontFamily: 'Inter_500Medium', color: '#6B7280', textAlign: 'center', lineHeight: 24, maxWidth: 300 },
-  formSection: { gap: 20, width: '100%', maxWidth: 500, alignSelf: 'center' },
-  siteBanner: { backgroundColor: 'white', padding: 20, borderRadius: 24, alignItems: 'center', borderLeftWidth: 4, borderLeftColor: '#3B82F6', elevation: 2 },
-  atText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#3B82F6', textTransform: 'uppercase', marginBottom: 4 },
-  siteName: { fontSize: 20, fontFamily: 'Inter_900Black', color: '#111827' },
-  webCard: { gap: 16, padding: 24, borderRadius: 32, backgroundColor: 'white' },
-  sectionLabel: { fontSize: 11, fontFamily: 'Inter_800ExtraBold', color: '#9CA3AF', letterSpacing: 1.5, marginTop: 4 },
-  row: { flexDirection: 'row', gap: 12 },
-  catGrid: { flexDirection: 'row', gap: 12 },
-  catItem: { flex: 1, height: 44, borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: 'white' },
-  catActive: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' },
-  catText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#4B5563' },
+  errorTitle: { fontSize: 20, fontFamily: 'Inter_800ExtraBold', color: '#1E293B', marginBottom: 8 },
+  errorSub: { fontSize: 14, color: '#64748B', fontFamily: 'Inter_400Regular', textAlign: 'center', maxWidth: 300, lineHeight: 22 },
+  successIconLarge: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#10B981', justifyContent: 'center', alignItems: 'center', marginBottom: 24, shadowColor: '#10B981', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  successTitle: { fontSize: 28, fontFamily: 'Inter_900Black', color: '#0F172A', marginBottom: 12 },
+  successSub: { fontSize: 16, fontFamily: 'Inter_500Medium', color: '#475569', textAlign: 'center', lineHeight: 24, maxWidth: 350 },
+  formSection: { gap: 24, width: '100%', maxWidth: 520, alignSelf: 'center' },
+  siteBanner: { 
+    backgroundColor: 'white', 
+    padding: 20, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderLeftWidth: 4, 
+    borderLeftColor: '#1E3A8A', 
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  atText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#64748B', textTransform: 'uppercase', letterSpacing: 1 },
+  siteName: { fontSize: 18, fontFamily: 'Inter_700Bold', color: '#0F172A' },
+  webCard: { 
+    padding: 32, 
+    borderRadius: 16, 
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  formGroup: { marginBottom: 24 },
+  sectionLabel: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#475569', letterSpacing: 1, marginBottom: 4 },
+  stepHint: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#64748B', marginBottom: 16 },
+  row: { flexDirection: 'row', gap: 16 },
+  catGridBig: { flexDirection: 'row', gap: 16 },
+  catCardBig: { 
+    flex: 1, 
+    padding: 24, 
+    borderRadius: 16, 
+    borderWidth: 1, 
+    borderColor: '#E2E8F0', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    backgroundColor: '#F8FAFC' 
+  },
+  catIconWrap: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  catCardActive: { backgroundColor: '#1E3A8A', borderColor: '#1E3A8A', shadowColor: '#1E3A8A', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  catCardTextBig: { fontSize: 16, fontFamily: 'Inter_700Bold', color: '#0F172A', marginBottom: 4 },
+  catCardDesc: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#64748B' },
+  textArea: { height: 120, paddingTop: 16, alignItems: 'flex-start', justifyContent: 'flex-start' },
+  actionBtn: { marginTop: 8 },
+  buttonRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
+  progressContainer: { marginBottom: 32 },
+  progressTrack: { width: '100%', height: 6, backgroundColor: '#F1F5F9', borderRadius: 3, overflow: 'hidden', marginBottom: 8 },
+  progressFill: { height: '100%', backgroundColor: '#1E3A8A', borderRadius: 3 },
+  progressText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#94A3B8', textAlign: 'right' },
+  stepContainer: { width: '100%' },
   webFooter: { marginTop: 60, alignItems: 'center' }
 });

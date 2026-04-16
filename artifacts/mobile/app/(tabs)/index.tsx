@@ -6,6 +6,8 @@ import { SiteAllocationModal } from '@/components/SiteAllocationModal';
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
+import { MapPicker } from "@/components/MapPicker";
 import React, { useMemo, useState, useEffect } from "react";
 import {
   Platform,
@@ -87,6 +89,9 @@ export default function HomeScreen() {
   const [siteClientPhoto, setSiteClientPhoto] = useState("");
   const [siteAuthority, setSiteAuthority] = useState("");
   const [isCreatingSite, setIsCreatingSite] = useState(false);
+  const [isMapVisible, setIsMapVisible] = useState(false);
+  const [siteLat, setSiteLat] = useState("");
+  const [siteLong, setSiteLong] = useState("");
 
   const companyId = selectedCompanyId ?? currentUser?.companyId ?? "";
   const role = currentUser?.role;
@@ -304,7 +309,10 @@ export default function HomeScreen() {
         clientName: siteClientName,
         clientPhone: siteClientPhone,
         authorityName: siteAuthority,
-        supervisorId: supId || undefined
+        supervisorId: supId || undefined,
+        latitude: siteLat ? parseFloat(siteLat) : undefined,
+        longitude: siteLong ? parseFloat(siteLong) : undefined,
+        radius: 200 // Default geofencing radius
       });
       if (siteClientEmail) {
         await provisionClient(site.id, siteClientEmail, siteClientName || siteName + " Client", siteClientPass, siteClientPhoto, companyId);
@@ -313,6 +321,7 @@ export default function HomeScreen() {
       setIsAddSiteVisible(false);
       setSiteName(""); setSiteLocation(""); setSiteSupEmail("");
       setClientName(""); setClientEmail(""); setClientPhone(""); setClientPass(""); setSiteClientPhoto("");
+      setSiteLat(""); setSiteLong("");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       showToast(e.message || "Failed to add site", "error");
@@ -330,6 +339,45 @@ export default function HomeScreen() {
       showToast(e.message || "Allocation failed", "error");
       throw e;
     }
+  };
+
+  const handleMarkCurrentLocation = async () => {
+    try {
+      showToast("Fetching precise GPS coordinates...", "info");
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        showToast("Permission to access location was denied", "error");
+        return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setSiteLat(String(loc.coords.latitude));
+      setSiteLong(String(loc.coords.longitude));
+
+      const [addr] = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude
+      });
+
+      if (addr) {
+        const fullAddr = `${addr.name || ''} ${addr.street || ''}, ${addr.city || ''}, ${addr.region || ''}`.trim().replace(/^ ,/, '');
+        setSiteLocation(fullAddr);
+        if (!siteName) setSiteName(addr.name || addr.street || "My New Site");
+        showToast("Location marked successfully!", "success");
+      }
+    } catch (err: any) {
+      showToast("Could not determine location: " + err.message, "error");
+    }
+  };
+
+  const onLocationPicked = (data: { latitude: number; longitude: number; address: string }) => {
+    setSiteLat(String(data.latitude));
+    setSiteLong(String(data.longitude));
+    setSiteLocation(data.address);
+    if (!siteName && data.address) {
+      setSiteName(data.address.split(',')[0]);
+    }
+    setIsMapVisible(false);
   };
 
   const pickClientImage = async () => {
@@ -470,6 +518,17 @@ export default function HomeScreen() {
         clientPhoto={siteClientPhoto} onPickPhoto={pickClientImage}
         loading={isCreatingSite}
         onSave={handleQuickAddSite}
+        onMarkLocation={handleMarkCurrentLocation}
+        onOpenMap={() => setIsMapVisible(true)}
+        lat={siteLat}
+        long={siteLong}
+      />
+
+      <MapPicker 
+        isVisible={isMapVisible}
+        onClose={() => setIsMapVisible(false)}
+        onConfirm={onLocationPicked}
+        isDarkMode={isDarkMode}
       />
 
       {/* Supervisor Profile Modal (Simplified placeholder as it's less critical for OOM) */}

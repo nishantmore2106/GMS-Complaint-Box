@@ -44,12 +44,20 @@ export const NotificationManager = {
     // 3. Bulk save history
     if (historyEntries.length > 0) {
       const { error } = await supabase.from('notifications').insert(historyEntries);
-      if (error) console.warn("[NotificationManager] History save error:", error);
+      if (error) {
+        console.error("[NotificationManager] History save error:", error);
+      } else {
+        console.log("[NotificationManager] Saved history for", historyEntries.length, "targets");
+      }
     }
 
     // 4. Send pushes
     for (const msg of pushMessages) {
-      await NotificationService.sendRemotePushNotification(msg.tokens, msg.title, msg.body, msg.data);
+      try {
+        await NotificationService.sendRemotePushNotification(msg.tokens, msg.title, msg.body, msg.data);
+      } catch (pushErr) {
+        console.error("[NotificationManager] Push Error:", pushErr);
+      }
     }
   },
 
@@ -65,8 +73,15 @@ export const NotificationManager = {
       .select('id, role, expo_push_token')
       .eq('company_id', company_id)
       .in('role', ['supervisor', 'founder']);
-
-    if (error || !staff) return;
+ 
+     if (error) {
+       console.error("[NotificationManager] Staff fetch error:", error);
+       return;
+     }
+     if (!staff || staff.length === 0) {
+       console.warn("[NotificationManager] No staff (supervisor/founder) found for company:", company_id);
+       return;
+     }
 
     const targets = [...staff];
 

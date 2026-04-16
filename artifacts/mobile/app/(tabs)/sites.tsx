@@ -1,6 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
+import { MapPicker } from "@/components/MapPicker";
 import React, { useState, useMemo, useRef } from "react";
 import {
   FlatList,
@@ -56,6 +58,9 @@ export default function SitesTabScreen() {
   const [newClientPhoto, setNewClientPhoto] = useState("");
   const [newAuthority, setNewAuthority] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMapVisible, setIsMapVisible] = useState(false);
+  const [newLat, setNewLat] = useState("");
+  const [newLong, setNewLong] = useState("");
 
   const locationRef = useRef<TextInput>(null);
   const clientNameRef = useRef<TextInput>(null);
@@ -114,16 +119,18 @@ export default function SitesTabScreen() {
         clientName: newClientName,
         clientPhone: newClientPhone,
         authorityName: newAuthority,
-        supervisorId: supId || undefined
+        supervisorId: supId || undefined,
+        latitude: newLat ? parseFloat(newLat) : undefined,
+        longitude: newLong ? parseFloat(newLong) : undefined,
+        radius: 200
       });
       if (newClientEmail) {
         await provisionClient(site.id, newClientEmail, newClientName || newName + " Client", newClientPassword, newClientPhoto, companyId);
       }
       showToast("Site added successfully", "success");
       setIsAddModalVisible(false);
-      setNewName(""); setNewLocation(""); setNewSupEmail("");
-      setNewClientName(""); setNewClientPhone(""); setNewClientEmail("");
       setNewClientPassword(""); setNewClientPhoto(""); setNewAuthority("");
+      setNewLat(""); setNewLong("");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       showToast(e.message || "Failed to add site", "error");
@@ -137,36 +144,56 @@ export default function SitesTabScreen() {
     const activeCount = sc.filter(c => c.status !== 'resolved').length;
     const supervisor = users.find(u => u.id === s.assignedSupervisorId);
     
+    const statusColor = activeCount > 5 ? '#EF4444' : (activeCount > 0 ? '#F59E0B' : '#10B981');
+    const statusBg = isDarkMode ? `${statusColor}20` : `${statusColor}10`;
+    
     return (
       <Pressable 
         style={[styles.siteCard, isDarkMode && styles.darkCard]}
         onPress={() => router.push(`/admin/site/${s.id}`)}
       >
-        <View style={styles.siteHeaderRow}>
-          <View style={styles.titleArea}>
-            <Text style={[styles.siteName, isDarkMode && styles.darkText]}>{s.name}</Text>
-            <View style={styles.locationRow}>
-              <Feather name="map-pin" size={12} color={isDarkMode ? Colors.dark.textMuted : "#9CA3AF"} />
-              <Text style={[styles.siteAddress, isDarkMode && styles.darkTextSub]} numberOfLines={1}>{s.address || "Location pending"}</Text>
+        <View style={styles.siteCardInternal}>
+          {/* Status Indicator Bar */}
+          <View style={[styles.statusIndicator, { backgroundColor: statusColor }]} />
+          
+          <View style={styles.cardMainContent}>
+            <View style={styles.siteHeaderRow}>
+              <View style={styles.titleArea}>
+                <Text style={[styles.siteName, isDarkMode && styles.darkText]} numberOfLines={1}>{s.name}</Text>
+                <View style={styles.locationRow}>
+                  <Feather name="map-pin" size={12} color={Colors.textMuted} />
+                  <Text style={[styles.siteAddress, isDarkMode && styles.darkTextSub]} numberOfLines={1}>{s.address || "Location pending"}</Text>
+                </View>
+              </View>
+              <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+                 <Text style={[styles.statusText, { color: statusColor }]}>
+                   {activeCount} {activeCount === 1 ? 'ISSUE' : 'ISSUES'}
+                 </Text>
+              </View>
+            </View>
+
+            <View style={[styles.cardFooter, isDarkMode && styles.darkCardFooter]}>
+              <View style={styles.metaInfo}>
+                <View style={[styles.avatarMini, isDarkMode && styles.darkAvatar]}>
+                  {supervisor ? (
+                    <Text style={[styles.avatarText, isDarkMode && styles.darkText]}>{supervisor.name.substring(0, 1).toUpperCase()}</Text>
+                  ) : (
+                    <Feather name="user-x" size={14} color="#9CA3AF" />
+                  )}
+                </View>
+                <Text style={[styles.metaText, isDarkMode && styles.darkTextSub]} numberOfLines={1}>
+                  {supervisor?.name || "Unassigned"}
+                </Text>
+              </View>
+              
+              <View style={styles.metaInfo}>
+                <Feather name="activity" size={14} color={Colors.textMuted} />
+                <Text style={[styles.metaText, isDarkMode && styles.darkTextSub]}>
+                  {sc.length} reports
+                </Text>
+              </View>
             </View>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: activeCount > 5 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)' }]}>
-             <Text style={[styles.statusText, { color: activeCount > 5 ? '#EF4444' : '#10B981' }]}>{activeCount} {role === 'client' ? 'ISSUES' : 'ACTIVE'}</Text>
-          </View>
-        </View>
-        <View style={[styles.divider, isDarkMode && styles.darkDivider]} />
-        <View style={styles.metaRow}>
-           <View style={styles.supProfileRow}>
-              <View style={[styles.avatarMini, isDarkMode && styles.darkAvatar]}>
-                {supervisor ? (
-                  <Text style={[styles.avatarText, isDarkMode && styles.darkText]}>{supervisor.name.substring(0, 1).toUpperCase()}</Text>
-                ) : (
-                  <Feather name="user-x" size={14} color="#9CA3AF" />
-                )}
-              </View>
-              <Text style={[styles.supName, isDarkMode && styles.darkTextSub]}>{supervisor?.name || "Unassigned"}</Text>
-           </View>
-           <Feather name="chevron-right" size={18} color="#D1D5DB" />
         </View>
       </Pressable>
     );
@@ -177,13 +204,6 @@ export default function SitesTabScreen() {
       <DashboardHeader 
         title="Sites"
         subtitle={company?.name || "Service Locations"}
-        rightElement={
-          role === 'founder' && (
-            <Pressable style={styles.addBtn} onPress={() => setIsAddModalVisible(true)}>
-              <Feather name="plus" size={20} color="white" />
-            </Pressable>
-          )
-        }
       />
       <View style={styles.searchBox}>
         <View style={[styles.searchBar, isDarkMode && styles.darkSearchBar]}>
@@ -244,7 +264,6 @@ export default function SitesTabScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Colors.bg },
   darkRoot: { backgroundColor: Colors.dark.bg },
   searchBox: { paddingHorizontal: 24, paddingBottom: 16 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', paddingHorizontal: 16, height: 52, borderRadius: 12, gap: 12 },
@@ -252,30 +271,43 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium' },
   addBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
   list: { padding: 24, gap: 16, paddingBottom: 120 },
-  siteCard: { padding: 20, backgroundColor: 'white', borderRadius: 24 },
-  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border, borderWidth: 1 },
-  siteHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  siteCard: { 
+    backgroundColor: 'white', 
+    borderRadius: 20, 
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10 },
+      android: { elevation: 4 }
+    }),
+    borderWidth: 1,
+    borderColor: '#F1F5F9'
+  },
+  siteCardInternal: { flexDirection: 'row' },
+  statusIndicator: { width: 6, height: '100%' },
+  cardMainContent: { flex: 1, padding: 16 },
+  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border },
+  siteHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
   titleArea: { flex: 1, gap: 4 },
   siteName: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: '#111827' },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   siteAddress: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6B7280' },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
-  statusText: { fontSize: 10, fontFamily: 'Inter_800ExtraBold' },
-  divider: { height: 1, backgroundColor: 'rgba(0,0,0,0.03)', marginVertical: 12 },
-  darkDivider: { backgroundColor: Colors.dark.border },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  supProfileRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatarMini: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
+  statusText: { fontSize: 9, fontFamily: 'Inter_800ExtraBold' },
+  cardFooter: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    paddingTop: 12,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F8FAFC'
+  },
+  darkCardFooter: { borderTopColor: '#334155' },
+  metaInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  metaText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#64748B' },
+  avatarMini: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
   darkAvatar: { backgroundColor: Colors.dark.surfaceElevated },
-  avatarText: { fontSize: 12, fontFamily: 'Inter_800ExtraBold' },
-  supName: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6B7280' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(17,24,39,0.4)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, maxHeight: '90%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  modalTitle: { fontSize: 22, fontFamily: 'Inter_900Black' },
-  closeBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
-  modalForm: { gap: 16 },
-  modalFooter: { flexDirection: 'row', gap: 12, marginTop: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
+  avatarText: { fontSize: 10, fontFamily: 'Inter_800ExtraBold' },
   darkText: { color: 'white' },
   darkTextSub: { color: Colors.dark.textSub },
 });
