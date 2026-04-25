@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { HapticsService } from "@/utils/haptics";
 import { router } from "expo-router";
 import React, { useState, useRef } from "react";
 import {
@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   View,
   Image,
 } from "react-native";
@@ -22,12 +23,15 @@ import { useToast } from "@/components/Toast";
 import { MapPicker } from "@/components/MapPicker";
 import { SoftInput } from "@/components/SoftInput";
 import * as Location from "expo-location";
+import { SoftCard } from "@/components/SoftCard";
+import { SoftButton } from "@/components/SoftButton";
 
 export default function NewSiteScreen() {
   const { createSite, companies, users, currentUser, provisionClient, notifications, profileImage, sites } = useApp();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
   const unreadNotifs = notifications.filter(n => !n.isRead).length;
+  const isDarkMode = useColorScheme() === "dark";
   const [loading, setLoading] = useState(false);
 
   const [name, setName] = useState("");
@@ -100,9 +104,38 @@ export default function NewSiteScreen() {
     }
   };
 
+  const validateForm = () => {
+    if (!name.trim()) return "Site Name is required";
+    if (!address.trim()) return "Full Address is required";
+    if (!phone.trim()) return "Site Phone Number is required";
+    if (!logoUrl.trim()) return "Logo URL is required";
+    if (!latitude.trim() || isNaN(parseFloat(latitude))) return "Valid Latitude is required";
+    if (!longitude.trim() || isNaN(parseFloat(longitude))) return "Valid Longitude is required";
+    if (!radiusMeters.trim() || isNaN(parseInt(radiusMeters))) return "Valid Geofence Radius is required";
+    
+    if (!clientName.trim()) return "Client Name is required";
+    if (!clientEmail.trim()) return "Client Email is required";
+    if (!clientEmail.includes("@") || !clientEmail.includes(".")) return "Invalid Client Email format";
+    if (!clientPassword.trim() || clientPassword.length < 6) return "Client Password must be at least 6 characters";
+    if (!clientPhone.trim()) return "Client Contact Phone is required";
+    if (!authorityName.trim()) return "Authority Point of Contact is required";
+    
+    if (!companyId) return "Company selection is required";
+    if (!supervisorId) return "Supervisor allotment is required";
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(clientEmail)) return "Please enter a valid email address";
+
+    const urlRegex = /^(https?:\/\/.*\.(?:png|jpg|jpeg|gif|png|svg))/i;
+    if (!urlRegex.test(logoUrl)) return "Please enter a valid Image URL (e.g. https://...png)";
+
+    return null;
+  };
+
   const handleCreate = async () => {
-    if (!name || !companyId) {
-      Alert.alert("Error", "Site Name and Company are required");
+    const error = validateForm();
+    if (error) {
+      Alert.alert("Missing Information", error);
       return;
     }
 
@@ -110,7 +143,7 @@ export default function NewSiteScreen() {
     if (supervisorId) {
       const assignedCount = sites.filter(s => s.assignedSupervisorId === supervisorId).length;
       if (assignedCount >= 5) {
-        Alert.alert("Limit Reached", "This supervisor already has 5 assigned sites. Please select another supervisor or leave as unassigned.");
+        Alert.alert("Limit Reached", "This supervisor already has 5 assigned sites. Please select another supervisor.");
         return;
       }
     }
@@ -120,29 +153,27 @@ export default function NewSiteScreen() {
       const newSite = await createSite({
         name,
         companyId,
-        supervisorId: supervisorId || undefined,
+        supervisorId: supervisorId,
         address,
         phone,
         logoUrl,
         clientPhone,
         authorityName,
-        latitude: parseFloat(latitude) || undefined,
-        longitude: parseFloat(longitude) || undefined,
-        radiusMeters: parseInt(radiusMeters) || 500
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        radiusMeters: parseInt(radiusMeters)
       });
 
-      // If client email provided, provision access immediately
-      if (clientEmail.includes("@")) {
-        console.log("[NewSite] Provisioning client access for", clientEmail);
-        try {
-          await provisionClient(newSite.id, clientEmail, clientName || name);
-        } catch (linkError) {
-          console.error("[NewSite] Client linkage failed but site was created:", linkError);
-          Alert.alert("Partial Success", "Site created, but client account linking failed. You can link it later from site details.");
-        }
+      // Provision access
+      console.log("[NewSite] Provisioning client access for", clientEmail);
+      try {
+        await provisionClient(newSite.id, clientEmail, clientName);
+      } catch (linkError) {
+        console.error("[NewSite] Client linkage failed but site was created:", linkError);
+        Alert.alert("Partial Success", "Site created, but client account linking failed. You can link it later from site details.");
       }
 
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await HapticsService.success();
       showToast("Site registered and client linked successfully!");
       router.replace("/(tabs)");
     } catch (e: any) {
@@ -187,18 +218,27 @@ export default function NewSiteScreen() {
         </View>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : undefined} 
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.scroll} 
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.section}>
             <View style={[styles.headerSub, { marginBottom: 8 }]}>
                <Text style={styles.sectionTitle}>Basic Information</Text>
             </View>
-            <View style={styles.card}>
+             <SoftCard style={styles.card}>
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Site Name *</Text>
                 <TextInput 
-                  style={styles.input} 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                   placeholder="e.g. Skyline Residency" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   value={name} 
                   onChangeText={setName} 
                   returnKeyType="next"
@@ -207,7 +247,7 @@ export default function NewSiteScreen() {
               </View>
               <SoftInput 
                 ref={addressRef}
-                label="Full Address"
+                label="Full Address *"
                 placeholder="Enter complete site address"
                 value={address}
                 onChangeText={setAddress}
@@ -216,10 +256,11 @@ export default function NewSiteScreen() {
                 onRightIconPress={() => setIsMapVisible(true)}
                 returnKeyType="next"
                 onSubmitEditing={() => phoneRef.current?.focus()}
+                isDarkMode={isDarkMode}
               />
 
-              <View style={[styles.mapActionRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 12 }]}>
-                 <Text style={[styles.inlineHint, { marginBottom: 0 }]}>Geographic Intel</Text>
+              <View style={[styles.mapActionRow, isDarkMode && { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border, borderStyle: 'solid' }]}>
+                 <Text style={[styles.inlineHint, isDarkMode && { color: Colors.dark.textSub }]}>Capture precise location coordinates automatically or pick from the map</Text>
                  <ScrollView 
                     horizontal 
                     showsHorizontalScrollIndicator={false} 
@@ -231,17 +272,18 @@ export default function NewSiteScreen() {
                    </Pressable>
                    <Pressable style={[styles.inlineMapBtn, { backgroundColor: '#4B5563' }]} onPress={() => setIsMapVisible(true)}>
                       <Feather name="map" size={14} color="white" />
-                      <Text style={styles.inlineMapBtnText}>Pick from Google Maps</Text>
+                      <Text style={styles.inlineMapBtnText}>Pick from Maps</Text>
                    </Pressable>
                  </ScrollView>
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Site Phone Number</Text>
+                <Text style={styles.label}>Site Phone Number *</Text>
                 <TextInput 
                   ref={phoneRef}
-                  style={styles.input} 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                   placeholder="e.g. +91 99999 88888" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   keyboardType="phone-pad"
                   value={phone} 
                   onChangeText={setPhone} 
@@ -250,11 +292,12 @@ export default function NewSiteScreen() {
                 />
               </View>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Site Logo URL</Text>
+                <Text style={styles.label}>Site Logo URL *</Text>
                 <TextInput 
                   ref={logoRef}
-                  style={styles.input} 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                   placeholder="e.g. https://site.com/logo.png" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   value={logoUrl} 
                   onChangeText={setLogoUrl} 
                   autoCapitalize="none"
@@ -265,20 +308,22 @@ export default function NewSiteScreen() {
 
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <View style={{ flex: 1, gap: 10 }}>
-                  <Text style={styles.label}>Latitude</Text>
+                  <Text style={styles.label}>Latitude *</Text>
                   <TextInput 
-                    style={styles.input} 
+                    style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                     placeholder="e.g. 22.3072" 
+                    placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                     value={latitude} 
                     onChangeText={setLatitude} 
                     keyboardType="numeric"
                   />
                 </View>
                 <View style={{ flex: 1, gap: 10 }}>
-                  <Text style={styles.label}>Longitude</Text>
+                  <Text style={styles.label}>Longitude *</Text>
                   <TextInput 
-                    style={styles.input} 
+                    style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                     placeholder="e.g. 73.1812" 
+                    placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                     value={longitude} 
                     onChangeText={setLongitude} 
                     keyboardType="numeric"
@@ -287,27 +332,29 @@ export default function NewSiteScreen() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Geofence Radius (Meters)</Text>
+                <Text style={styles.label}>Geofence Radius (Meters) *</Text>
                 <TextInput 
-                  style={styles.input} 
-                  placeholder="Default: 500" 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
+                  placeholder="e.g. 500" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   value={radiusMeters} 
                   onChangeText={setRadiusMeters} 
                   keyboardType="numeric"
                 />
               </View>
-            </View>
+            </SoftCard>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Client Details & Login</Text>
-            <View style={styles.card}>
+            <SoftCard style={styles.card}>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Client Name (Company/Person)</Text>
+                <Text style={styles.label}>Client Name (Company/Person) *</Text>
                 <TextInput 
                   ref={clientNameRef}
-                  style={styles.input} 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                   placeholder="e.g. Skyline Ventures" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   value={clientName} 
                   onChangeText={setClientName} 
                   returnKeyType="next"
@@ -315,11 +362,12 @@ export default function NewSiteScreen() {
                 />
               </View>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Login Email (For Site Access)</Text>
+                <Text style={styles.label}>Login Email (For Site Access) *</Text>
                 <TextInput 
                   ref={clientEmailRef}
-                  style={styles.input} 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                   placeholder="e.g. client01@gmail.com" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   value={clientEmail} 
                   onChangeText={setClientEmail}
                   autoCapitalize="none"
@@ -329,11 +377,12 @@ export default function NewSiteScreen() {
                 />
               </View>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Login Password (Reference)</Text>
+                <Text style={styles.label}>Login Password (Reference) *</Text>
                 <TextInput 
                   ref={clientPasswordRef}
-                  style={styles.input} 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                   placeholder="gms258" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   value={clientPassword} 
                   onChangeText={setClientPassword}
                   secureTextEntry
@@ -342,11 +391,12 @@ export default function NewSiteScreen() {
                 />
               </View>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Contact Phone</Text>
+                <Text style={styles.label}>Contact Phone *</Text>
                 <TextInput 
                   ref={clientPhoneRef}
-                  style={styles.input} 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                   placeholder="+91 00000 00000" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   keyboardType="phone-pad" 
                   value={clientPhone} 
                   onChangeText={setClientPhone} 
@@ -355,23 +405,24 @@ export default function NewSiteScreen() {
                 />
               </View>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Authority Point of Contact</Text>
+                <Text style={styles.label}>Authority Point of Contact *</Text>
                 <TextInput 
                   ref={authorityRef}
-                  style={styles.input} 
+                  style={[styles.input, isDarkMode && { backgroundColor: Colors.dark.surface, color: 'white', borderColor: Colors.dark.border }]} 
                   placeholder="e.g. Mr. Sharma (Sec)" 
+                  placeholderTextColor={isDarkMode ? "#64748B" : "#9CA3AF"}
                   value={authorityName} 
                   onChangeText={setAuthorityName} 
                   returnKeyType="done"
                   onSubmitEditing={() => Keyboard.dismiss()}
                 />
               </View>
-            </View>
+            </SoftCard>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Allotment</Text>
-            <View style={styles.card}>
+            <SoftCard style={styles.card}>
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Select Company *</Text>
                 <ScrollView 
@@ -395,14 +446,11 @@ export default function NewSiteScreen() {
               </View>
               
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Allot Supervisor</Text>
+                <Text style={styles.label}>Allot Supervisor *</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-                  <Pressable 
-                    style={[styles.chip, !supervisorId && styles.chipActive]}
-                    onPress={() => setSupervisorId("")}
-                  >
-                    <Text style={[styles.chipText, !supervisorId && styles.chipTextActive]}>Unassigned</Text>
-                  </Pressable>
+                  {companyUsers.length === 0 && (
+                    <Text style={[styles.inlineHint, { marginLeft: 12, marginTop: 12 }]}>No supervisors found for this company</Text>
+                  )}
                   {companyUsers.map(u => (
                     <Pressable 
                       key={u.id} 
@@ -414,16 +462,25 @@ export default function NewSiteScreen() {
                   ))}
                 </ScrollView>
               </View>
-            </View>
+            </SoftCard>
           </View>
 
-          <Pressable 
-            style={[styles.submitBtn, loading && { opacity: 0.7 }]} 
-            onPress={handleCreate}
-            disabled={loading}
-          >
-            <Text style={styles.submitBtnText}>{loading ? "Saving Site..." : "Register Site"}</Text>
-          </Pressable>
+          <View style={styles.footerActions}>
+            <SoftButton 
+              title="Cancel" 
+              variant="secondary" 
+              onPress={() => router.back()}
+              style={{ flex: 1 }}
+              isDarkMode={isDarkMode}
+            />
+            <SoftButton 
+              title={loading ? "Saving..." : "Add Site"} 
+              onPress={handleCreate} 
+              loading={loading}
+              style={{ flex: 2 }}
+              isDarkMode={isDarkMode}
+            />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -431,6 +488,7 @@ export default function NewSiteScreen() {
         isVisible={isMapVisible}
         onClose={() => setIsMapVisible(false)}
         onConfirm={onLocationPicked}
+        isDarkMode={isDarkMode}
       />
     </View>
   );
@@ -459,13 +517,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, 
     paddingVertical: 12, 
     borderRadius: 16,
-    shadowColor: '#146A65',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3
   },
   inlineMapBtnText: { color: 'white', fontSize: 13, fontFamily: 'Inter_800ExtraBold' },
+  footerActions: { flexDirection: 'row', gap: 12, marginTop: 40, paddingBottom: 20 },
   header: { 
     flexDirection: "row", 
     alignItems: "center", 
@@ -473,11 +527,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 20,
     backgroundColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    elevation: 3,
     zIndex: 10,
   },
   headerLeft: {
@@ -502,18 +551,21 @@ const styles = StyleSheet.create({
   avatar: { width: 44, height: 44, borderRadius: 12, borderWidth: 1, borderColor: 'white' },
   avatarFallback: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#146A65', justifyContent: 'center', alignItems: 'center' },
   avatarFallbackText: { color: 'white', fontSize: 16, fontFamily: 'Inter_700Bold' },
-  scroll: { padding: 32, gap: 32, paddingBottom: 120 },
+  scroll: { 
+    flexGrow: 1,
+    padding: 24, 
+    gap: 24, 
+    paddingBottom: 220 
+  },
   section: { gap: 16 },
-  sectionTitle: { fontSize: 13, fontFamily: "Inter_800ExtraBold", color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 2, marginLeft: 8 },
-  card: { backgroundColor: 'white', borderRadius: 40, padding: 32, gap: 24, shadowColor: '#146A65', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 6 },
+  sectionTitle: { fontSize: 11, fontFamily: "Inter_800ExtraBold", color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 2, marginLeft: 8 },
+  card: { padding: 24, gap: 20 },
   inputGroup: { gap: 10 },
   label: { fontSize: 14, fontFamily: "Inter_700Bold", color: '#4B5563', marginLeft: 4 },
-  input: { backgroundColor: '#F8FAFA', borderRadius: 16, borderWidth: 1, borderColor: '#F0F4F4', paddingHorizontal: 20, fontSize: 15, fontFamily: 'Inter_500Medium', color: '#111827', height: 56 },
+  input: { backgroundColor: '#F8FAFA', borderRadius: 16, borderWidth: 1, borderColor: '#F5F7F7', paddingHorizontal: 20, fontSize: 15, fontFamily: 'Inter_500Medium', color: '#111827', height: 56 },
   chipRow: { flexGrow: 0, marginHorizontal: -4 },
-  chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 32, backgroundColor: '#F8FAFA', borderWidth: 1, borderColor: '#F0F4F4', marginRight: 10 },
+  chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 32, backgroundColor: '#F8FAFA', borderWidth: 1, borderColor: '#F5F7F7', marginRight: 10 },
   chipActive: { backgroundColor: '#146A65', borderColor: '#146A65' },
   chipText: { fontSize: 13, fontFamily: "Inter_700Bold", color: '#4B5563' },
   chipTextActive: { color: "white" },
-  submitBtn: { height: 64, backgroundColor: '#146A65', borderRadius: 32, justifyContent: "center", alignItems: "center", marginTop: 14, shadowColor: '#146A65', shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 8 },
-  submitBtnText: { color: "white", fontSize: 18, fontFamily: "Inter_900Black" },
 });

@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
   backBtn: {
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: 'white',
     justifyContent: 'center',
     alignItems: 'center',
@@ -173,8 +173,8 @@ const styles = StyleSheet.create({
     })
   },
   darkCompanyPill: {
-    backgroundColor: Colors.dark.surface,
-    borderColor: Colors.dark.border,
+    backgroundColor: Colors.dark.surfaceElevated,
+    borderColor: Colors.dark.borderStrong,
   },
   companyDot: {
     width: 6,
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
   iconBtn: {
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: 'white',
     justifyContent: 'center',
     alignItems: 'center',
@@ -203,11 +203,13 @@ const styles = StyleSheet.create({
   },
   darkIconBtn: {
     backgroundColor: Colors.dark.surfaceElevated,
+    borderColor: Colors.dark.borderStrong,
+    borderWidth: 1,
   },
   badge: {
     position: 'absolute',
-    top: -5,
-    right: -5,
+    top: -4,
+    right: -4,
     backgroundColor: '#EF4444',
     width: 18,
     height: 18,
@@ -223,10 +225,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
   },
   profileBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
   avatar: {
     width: '100%',

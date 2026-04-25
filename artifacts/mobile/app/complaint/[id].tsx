@@ -26,6 +26,12 @@ import { useApp } from "@/context/AppContext";
 import { SoftCard } from "@/components/SoftCard";
 import { PhaseTracker, ComplaintPhase } from "@/components/PhaseTracker";
 import { supabase } from "@/lib/supabase";
+import { NotificationManager } from "@/services/notification.manager";
+import { LocationService } from "@/services/location.service";
+import { HapticsService } from "@/utils/haptics";
+import { ReportService } from "@/services/report.service";
+import * as Location from "expo-location";
+import { APP_CONFIG } from "@/constants/config";
 
 const WORK_TAGS = [
   { id: 'electrical', label: 'Electrical', icon: 'zap' as const },
@@ -38,7 +44,7 @@ const WORK_TAGS = [
 export default function ComplaintDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const { isDarkMode, complaints, updateComplaint, updateComplaintPhase, users, sites, isLoading: loading, getSiteById, getUserById, uploadImage, deleteComplaint } = useApp();
+  const { isDarkMode, complaints, updateComplaint, updateComplaintPhase, users, sites, isLoading: loading, getSiteById, getUserById, uploadImage, deleteComplaint, checkProximity, currentUser } = useApp();
 
   const [localSiteData, setLocalSiteData] = useState<any>(null);
   const [localRaisedByData, setLocalRaisedByData] = useState<any>(null);
@@ -97,7 +103,6 @@ export default function ComplaintDetailScreen() {
   const [workNotes, setWorkNotes] = useState(complaint?.work_notes || "");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [showSharePreview, setShowSharePreview] = useState(false);
 
@@ -105,45 +110,91 @@ export default function ComplaintDetailScreen() {
   const slideUp = useMemo(() => new Animated.Value(50), []);
   const [activeFullImage, setActiveFullImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState<'before' | 'after' | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationVerified, setLocationVerified] = useState<boolean | null>(null);
 
   useEffect(() => {
     Animated.spring(slideUp, { toValue: 0, useNativeDriver: true, friction: 8 }).start();
   }, []);
 
-  useEffect(() => {
-    if (complaint?.currentPhase && !['reported', 'assigned', 'resolved'].includes(complaint.currentPhase)) {
-      setIsTimerRunning(true);
-    } else {
-      setIsTimerRunning(false);
-    }
-  }, [complaint?.currentPhase]);
+  const currentPhaseNormalized = (complaint?.currentPhase || complaint?.current_phase || 'reported').toLowerCase();
 
+  const isActiveSession = useMemo(() => {
+    if (!complaint) return false;
+    const status = complaint.status;
+    const isStarted = !!complaint.startedAt || !!complaint.started_at;
+    const isNotResolved = !complaint.resolvedAt && !complaint.resolved_at && status !== 'resolved';
+    
+    return isStarted && isNotResolved && (status === 'in_progress' || ['arrived', 'checking_issue', 'solving'].includes(currentPhaseNormalized));
+  }, [complaint?.startedAt, complaint?.started_at, complaint?.resolvedAt, complaint?.resolved_at, complaint?.status, currentPhaseNormalized]);
+
+  // GSD Decision: Server-Side Persistent Stopwatch
   useEffect(() => {
     let interval: any;
     const updateElapsed = () => {
-      if (!complaint?.startedAt) {
+      const startTime = complaint?.startedAt || complaint?.started_at;
+      const endTime = complaint?.resolvedAt || complaint?.resolved_at;
+      
+      if (!startTime) {
         setElapsedSeconds(0);
         return;
       }
-      const start = new Date(complaint.startedAt).getTime();
-      const end = complaint.resolvedAt ? new Date(complaint.resolvedAt).getTime() : Date.now();
-      setElapsedSeconds(Math.max(0, Math.floor((end - start) / 1000)));
+      
+      const start = new Date(startTime).getTime();
+      const end = endTime ? new Date(endTime).getTime() : Date.now();
+      const diff = Math.max(0, Math.floor((end - start) / 1000));
+      setElapsedSeconds(diff);
     };
 
-    if (isTimerRunning || complaint?.status === 'resolved') {
-      updateElapsed();
-      if (isTimerRunning) {
-        interval = setInterval(updateElapsed, 1000);
-        Animated.loop(
-          Animated.sequence([
-            Animated.timing(pulseAnim, { toValue: 1.2, duration: 1000, useNativeDriver: true }),
-            Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true })
-          ])
-        ).start();
-      }
+    updateElapsed(); // Initial run
+
+    if (isActiveSession) {
+      console.log("[Timer] Active session detected, starting interval...");
+      interval = setInterval(updateElapsed, 1000);
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.2, duration: 1000, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true })
+        ])
+      ).start();
+    } else {
+      console.log("[Timer] Session inactive or resolved.");
+      pulseAnim.setValue(1);
     }
-    return () => clearInterval(interval);
-  }, [isTimerRunning, complaint?.startedAt, complaint?.resolvedAt]);
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isActiveSession, complaint?.startedAt, complaint?.started_at, complaint?.resolvedAt, complaint?.resolved_at]);
+
+  // GSD Decision: Geofence Exit Alert (Foreground)
+  const [showExitWarning, setShowExitWarning] = useState(false);
+  useEffect(() => {
+    let watchId: any;
+    if (isActiveSession && siteData?.latitude && siteData?.longitude) {
+      console.log("[Geofence/Monitor] Starting proximity watch...");
+      Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, distanceInterval: 10 },
+        (loc) => {
+          const dist = LocationService.getDistance(
+            { latitude: loc.coords.latitude, longitude: loc.coords.longitude },
+            { latitude: siteData.latitude, longitude: siteData.longitude }
+          );
+          
+          if (dist > 250) {
+             if (!showExitWarning) {
+                console.warn("[Geofence/Monitor] Supervisor has left the 250m geofence!");
+                setShowExitWarning(true);
+                HapticsService.warning();
+             }
+          } else {
+             setShowExitWarning(false);
+          }
+        }
+      ).then(sub => watchId = sub);
+    }
+    return () => watchId?.remove();
+  }, [isActiveSession, siteData]);
 
   if (!complaint) {
     return (
@@ -191,7 +242,69 @@ export default function ComplaintDetailScreen() {
       }
     }
   };
+  const handleGenerateReport = async () => {
+    if (!complaint || !siteData) return;
+    try {
+      await HapticsService.impact('medium');
+      await ReportService.generateResolutionReport({
+        id: complaint.id,
+        siteName: siteData.name,
+        siteLogo: siteData.logoUrl,
+        clientName: raisedByData?.name || "Client",
+        floor: complaint.floor,
+        room: complaint.roomNumber,
+        category: complaint.category,
+        description: complaint.description,
+        beforeImage: complaint.beforeMediaUrl,
+        afterImage: complaint.afterMediaUrl,
+        duration: formatTime(elapsedSeconds),
+        startedAt: complaint.startedAt || new Date().toISOString(),
+        resolvedAt: complaint.resolvedAt || new Date().toISOString(),
+        supervisorName: assignedSupervisor?.name || "GMS Supervisor",
+        workNotes: workNotes || complaint.work_notes
+      });
+    } catch (err) {
+      Alert.alert("Report Error", "Failed to generate PDF. Please ensure all permissions are granted.");
+    }
+  };
+
   const handlePhaseTransition = async () => {
+    if (!complaint.siteId) return;
+    
+    setIsLocating(true);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // 1. Check Proximity (Geofence)
+    const { isInside, distance } = await checkProximity(complaint.siteId);
+    setLocationVerified(isInside);
+    setIsLocating(false);
+
+    // 2. Founder Bypass or Strict Check
+    const isFounder = currentUser?.role === 'founder';
+    
+    if (!isInside && !isFounder) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        "Out of Range", 
+        `You are currently ${Math.round(distance || 0)}m away. You must be within the site premises to update this task.`
+      );
+      return;
+    }
+
+    if (!isInside && isFounder) {
+      const proceed = await new Promise(resolve => {
+        Alert.alert(
+          "Admin Override",
+          "You are out of range, but as a Founder you can bypass this. Proceed?",
+          [
+            { text: "Cancel", onPress: () => resolve(false), style: 'cancel' },
+            { text: "Override", onPress: () => resolve(true) }
+          ]
+        );
+      });
+      if (!proceed) return;
+    }
+
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     let next: ComplaintPhase;
     
@@ -215,16 +328,14 @@ export default function ComplaintDetailScreen() {
     }
 
     await updateComplaintPhase(complaint.id, next);
-    const updates: any = { currentPhase: next };
-    if (next === 'resolved') {
-      updates.status = 'resolved';
-      updates.resolvedAt = new Date().toISOString();
-      updates.work_notes = workNotes; 
-    } else {
-      updates.status = 'in_progress';
-    }
     
-    await updateComplaint(complaint.id, updates);
+    // Force a fresh sync so the timer sees complaint.startedAt immediately
+    await refreshData({ forceSync: true });
+    
+    if (next === 'resolved') {
+      // Logic for resolution note already handled by PhaseTracker calling resolution logic
+      router.back();
+    }
   };
 
   const toggleTag = (id: string) => {
@@ -308,19 +419,31 @@ Shared via GMS Complaint Box`;
               <View style={{ alignItems: 'center' }}>
                 <Text style={styles.heroTitle}>Complaint Insight</Text>
               </View>
-              <Pressable style={styles.navBack} onPress={handleShare}>
-                <Feather name="share-2" size={18} color="white" />
+              <Pressable style={styles.navBack} onPress={() => refreshData({ forceSync: true })}>
+                <View style={{ alignItems: 'flex-end' }}>
+                   <Feather name="refresh-cw" size={18} color="white" />
+                   <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>
+                     PHASE: {currentPhaseNormalized.toUpperCase()}
+                   </Text>
+                </View>
               </Pressable>
             </View>
 
-            {(currentPhase !== 'reported' && currentPhase !== 'assigned' && currentPhase !== 'resolved') ? (
+            {(isActiveSession || complaint.status === 'resolved') ? (
               <View style={styles.stopwatchContainer}>
                 <View style={styles.liveBadge}>
                   <Animated.View style={[styles.liveDot, { transform: [{ scale: pulseAnim }] }]} />
-                  <Text style={styles.liveLabel}>LIVE WORK SESSION</Text>
+                  <Text style={styles.liveLabel}>{complaint.status === 'resolved' ? 'RESOLUTION TIME' : 'LIVE WORK SESSION'}</Text>
                 </View>
                 <Text style={styles.stopwatch}>{formatTime(elapsedSeconds)}</Text>
-                <Text style={styles.stopwatchSub}>Field Persistence Time</Text>
+                {isActiveSession && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <Feather name={locationVerified ? "shield" : "crosshair"} size={10} color={locationVerified ? "#4ADE80" : "#94A3B8"} />
+                    <Text style={[styles.stopwatchSub, locationVerified && { color: '#4ADE80' }]}>
+                      {isLocating ? "Verifying GPS..." : (locationVerified ? "Presence Verified" : "Location Untrusted")}
+                    </Text>
+                  </View>
+                )}
               </View>
             ) : (
               <View style={styles.staticHeroInfo}>
@@ -678,15 +801,27 @@ Shared via GMS Complaint Box`;
 
                 <Pressable 
                   style={({ pressed }) => [styles.successAction, pressed && { opacity: 0.8 }, { marginBottom: 12 }]}
-                  onPress={() => setShowReport(true)}
+                  onPress={handleGenerateReport}
                 >
                   <LinearGradient
-                    colors={['#4F46E5', '#3730A3']}
+                    colors={['#10B981', '#059669']}
                     style={styles.successBtn}
                   >
-                    <Text style={styles.successBtnText}>View Full Report</Text>
+                    <Text style={styles.successBtnText}>Generate Pro PDF Report</Text>
                     <Feather name="file-text" size={18} color="white" />
                   </LinearGradient>
+                </Pressable>
+
+                <Pressable 
+                  style={({ pressed }) => [styles.successAction, pressed && { opacity: 0.8 }, { marginBottom: 12 }]}
+                  onPress={() => setShowReport(true)}
+                >
+                  <View
+                    style={[styles.successBtn, { backgroundColor: isDarkMode ? Colors.dark.surfaceElevated : '#FFFFFF', borderWidth: 1, borderColor: isDarkMode ? Colors.dark.border : '#E2E8F0' }]}
+                  >
+                    <Text style={[styles.successBtnText, { color: isDarkMode ? 'white' : '#1E293B' }]}>View Work Summary</Text>
+                    <Feather name="eye" size={18} color={isDarkMode ? 'white' : '#1E293B'} />
+                  </View>
                 </Pressable>
 
                 <Pressable 
@@ -705,6 +840,30 @@ Shared via GMS Complaint Box`;
           </BlurView>
         </View>
       )}
+
+      {/* Geofence Exit Warning Modal */}
+      <Modal transparent visible={showExitWarning} animationType="fade">
+         <View style={styles.modalOverlay}>
+            <BlurView intensity={20} style={StyleSheet.absoluteFill} tint={isDarkMode ? 'dark' : 'light'} />
+            <SoftCard style={styles.warningModal}>
+               <View style={styles.warningIcon}>
+                  <Feather name="alert-triangle" size={32} color="#EF4444" />
+               </View>
+               <Text style={styles.warningTitle}>Away from Premises</Text>
+                <Text style={styles.warningText}>
+                  You are currently more than {APP_CONFIG.GEOFENCE.DEFAULT_RADIUS}m away from {siteData?.name}. Did you forget to stop the timer?
+                </Text>
+               <View style={styles.warningActions}>
+                  <Pressable style={styles.warningBtnIgnore} onPress={() => setShowExitWarning(false)}>
+                     <Text style={styles.warningBtnTextIgnore}>Close</Text>
+                  </Pressable>
+                  <Pressable style={styles.warningBtnAction} onPress={() => { setShowExitWarning(false); handlePhaseTransition(); }}>
+                     <Text style={styles.warningBtnTextAction}>Resolve Now</Text>
+                  </Pressable>
+               </View>
+            </SoftCard>
+         </View>
+      </Modal>
 
       {isSupervisor && complaint.status !== 'resolved' && (
         <BlurView 
@@ -1071,4 +1230,42 @@ const styles = StyleSheet.create({
   shareExternBtn: { height: 64, width: '100%', borderRadius: 32, overflow: 'hidden', marginTop: 24 },
   shareGradient: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },
   shareExternText: { color: 'white', fontSize: 16, fontFamily: 'Inter_700Bold' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  warningModal: {
+    width: '100%',
+    padding: 30,
+    alignItems: 'center',
+    backgroundColor: 'white'
+  },
+  warningIcon: {
+    width: 64, height: 64, borderRadius: 32, backgroundColor: '#FEE2E2',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 20
+  },
+  warningTitle: { fontSize: 20, fontFamily: 'Inter_900Black', color: '#111827', marginBottom: 10 },
+  warningText: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  warningActions: { flexDirection: 'row', gap: 12, width: '100%' },
+  warningBtnIgnore: { flex: 1, height: 54, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center' },
+  warningBtnTextIgnore: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#64748B' },
+  warningBtnAction: { flex: 1, height: 54, borderRadius: 12, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center' },
+  warningBtnTextAction: { fontSize: 14, fontFamily: 'Inter_700Bold', color: 'white' },
+
+  successModal: { width: '100%', padding: 30, alignItems: 'center' },
+  successCheck: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#146A65', justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+  successTitle: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#111827', marginBottom: 8 },
+  successSubtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 24 },
+  successStats: { width: '100%', backgroundColor: '#F8FAFA', padding: 20, borderRadius: 16, marginBottom: 24 },
+  statItem: { alignItems: 'center' },
+  statLabel: { fontSize: 11, fontFamily: 'Inter_800ExtraBold', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
+  statValue: { fontSize: 20, fontFamily: 'Inter_900Black', color: '#146A65' },
+  successActions: { width: '100%', gap: 12 },
+  reportBtn: { height: 54, backgroundColor: '#146A65', borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
+  reportBtnText: { color: 'white', fontSize: 14, fontFamily: 'Inter_700Bold' },
+  doneBtn: { height: 54, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center' },
+  doneBtnText: { color: '#64748B', fontSize: 14, fontFamily: 'Inter_700Bold' }
 });

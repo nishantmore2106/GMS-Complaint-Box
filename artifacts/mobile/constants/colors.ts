@@ -54,19 +54,23 @@ export const Colors = {
   shadowOpacity: 0.04,
   shadowRadius: 20,
 
-  // Dark Mode Tokens (Premium Slate)
+  // Dark Mode Tokens (Premium Slate & Deep Indigo)
   dark: {
-    bg: "#0F172A",
-    surface: "#1E293B",
-    surfaceElevated: "#334155",
-    border: "rgba(255,255,255,0.06)",
-    text: "#F8FAFC",
-    textSub: "#94A3B8",
-    textMuted: "#64748B",
-    heroGradient: ["#1E1B4B", "#312E81", "#1E293B"],
-    cardGradient: ["#1E1B4B", "#0F172A"],
-    accent: "#3B82F6",
-    accentMuted: "rgba(59,130,246,0.1)",
+    bg: "#0B0F19", // Deep space gray
+    surface: "#111827", // Rich navy surface
+    surfaceElevated: "#1F2937", // Lighter slate for elevation
+    border: "rgba(255, 255, 255, 0.08)",
+    borderStrong: "rgba(255, 255, 255, 0.15)",
+    text: "#F9FAFB",
+    textSub: "#9CA3AF",
+    textMuted: "#6B7280",
+    heroGradient: ["#0B0F19", "#111827", "#1E293B"],
+    cardGradient: ["#111827", "#0B0F19"],
+    accent: "#60A5FA", // Electric blue
+    accentMuted: "rgba(96, 165, 250, 0.1)",
+    accentGlow: "rgba(96, 165, 250, 0.2)",
+    glass: "rgba(17, 24, 39, 0.75)",
+    glassBorder: "rgba(255, 255, 255, 0.1)",
   }
 };
 

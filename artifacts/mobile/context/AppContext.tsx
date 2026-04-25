@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
+import * as Location from "expo-location";
 import React, {
   createContext,
   useCallback,
@@ -12,11 +13,14 @@ import React, {
 import { supabase } from "../lib/supabase";
 import { Session } from "@supabase/supabase-js";
 import { LoadingScreen } from "../components/LoadingScreen";
+import { APP_CONFIG } from "../constants/config";
 import { ApiService } from "../services/api.service";
 import { compressImage } from "../utils/image";
 import { NotificationService } from "../services/notification.service";
 import { NotificationManager } from "../services/notification.manager";
+import { HapticsService } from "../utils/haptics";
 import { getProfessionalNotification } from "../utils/notifications";
+import { LocationService } from "../services/location.service";
 import { Alert } from "react-native";
 
 export type Role = "client" | "supervisor" | "founder";
@@ -119,6 +123,7 @@ export interface Notification {
   message: string;
   type: string;
   isRead: boolean;
+  data?: any;
   createdAt: string;
 }
 
@@ -146,6 +151,17 @@ export interface SupervisorMetric {
   avg_time_hrs: number;
   rating: number;
   last_updated: string;
+}
+
+export interface SupervisorRequest {
+  id: string;
+  companyId: string;
+  clientId: string;
+  siteId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  notes?: string;
+  createdAt: string;
+  resolvedAt?: string;
 }
 
 interface AppContextType {
@@ -214,7 +230,13 @@ interface AppContextType {
   deleteAccount: () => Promise<void>;
   deleteCompany: (id: string) => Promise<void>;
   resetUserPassword: (userId: string, newPassword: string) => Promise<any>;
+  calculateDistance: (lat1: number, lon1: number, lat2: number, lon2: number) => number;
+  checkProximity: (siteId: string, customRadius?: number) => Promise<{ isInside: boolean, distance: number | null }>;
+  checkLocationEnabled: () => Promise<boolean>;
   loaded: boolean;
+  supervisorRequests: SupervisorRequest[];
+  requestSupervisorAllocation: (siteId: string, notes?: string) => Promise<void>;
+  resolveSupervisorRequest: (requestId: string, status: 'approved' | 'rejected', supervisorId?: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -240,19 +262,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastSynced, setLastSynced] = useState<number | null>(null);
   const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(null);
   const [appIssues, setAppIssues] = useState<AppIssue[]>([]);
+  const [supervisorRequests, setSupervisorRequests] = useState<SupervisorRequest[]>([]);
   const [syncError, setSyncError] = useState<boolean>(false);
 
   const currentUserRef = useRef<User | null>(null);
   const isFetchingRef = useRef(false);
   const hasInitialDataRef = useRef(false);
+  const isInitializingRef = useRef(false);
   const lastAuthUpdateRef = useRef<number>(Date.now());
   const pendingProfileFetchRef = useRef<Map<string, Promise<any>>>(new Map());
   const sitesRef = useRef<Site[]>([]);
   const usersRef = useRef<User[]>([]);
+  const loadedRef = useRef(false);
+  const isAuthLoadingRef = useRef(true);
 
-  // Keep refs in sync with state for realtime listener access
+  // Keep refs in sync with state for realtime listener access and timeout safety
   useEffect(() => { sitesRef.current = sites; }, [sites]);
   useEffect(() => { usersRef.current = users; }, [users]);
+  useEffect(() => { loadedRef.current = loaded; }, [loaded]);
+  useEffect(() => { isAuthLoadingRef.current = isAuthLoading; }, [isAuthLoading]);
 
   const fetchData = useCallback(async (options?: { forceLoading?: boolean, forceSync?: boolean, search?: string }) => {
     if (isFetchingRef.current) return;
@@ -263,15 +291,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     
-    // 🛡️ Global Safety Timeout: Force loading to false after 20s if anything hangs
+    // 🛡️ Global Safety Timeout: Force loading to false after 30s if anything hangs
     const safetyTimeout = setTimeout(() => {
-      if (isLoading) {
+      if (isFetchingRef.current) {
         console.error("[AppContext] Global fetchData timeout reached. Forcing loading false.");
         setIsLoading(false);
         setLoaded(true);
         isFetchingRef.current = false;
       }
-    }, 20000);
+    }, 30000);
 
     try {
       const alreadyHasData = complaints.length > 0 || sites.length > 0;
@@ -314,7 +342,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
       console.log("[AppContext] ApiService data received.");
       
-      const [siteRes, complaintRes, metricsRes, logsRes, supMetricsRes, usersRes] = results;
+      const [siteRes, complaintRes, metricsRes, logsRes, supMetricsRes, usersRes, supReqRes] = results;
 
       if (usersRes?.data) {
         const activeUsers = usersRes.data.filter((u: any) => u.status !== 'deleted');
@@ -341,7 +369,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           radiusMeters: s.radius_meters || 500
         }));
         setSites(mappedSites);
-        await AsyncStorage.setItem("cached_sites", JSON.stringify(mappedSites));
+        await AsyncStorage.setItem(APP_CONFIG.CACHE.SITES, JSON.stringify(mappedSites));
       }
 
       if (complaintRes?.data) {
@@ -371,22 +399,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           };
         });
         setComplaints(mappedComplaints);
-        await AsyncStorage.setItem("cached_complaints", JSON.stringify(mappedComplaints));
+        await AsyncStorage.setItem(APP_CONFIG.CACHE.COMPLAINTS, JSON.stringify(mappedComplaints));
       }
 
       if (metricsRes?.data) {
         setSiteMetrics(metricsRes.data);
-        await AsyncStorage.setItem("cached_site_metrics", JSON.stringify(metricsRes.data));
+        await AsyncStorage.setItem(APP_CONFIG.CACHE.SITE_METRICS, JSON.stringify(metricsRes.data));
       }
-      if (logsRes?.data) setSystemLogs(logsRes.data);
+      if (logsRes?.data) {
+        const mappedNotifs = logsRes.data.map((n: any) => ({
+          id: n.id, userId: n.user_id, title: n.title, message: n.message, 
+          type: n.type, isRead: n.is_read, createdAt: n.created_at, data: n.data
+        }));
+        setNotifications(mappedNotifs);
+      }
       if (supMetricsRes?.data) {
         setSupervisorMetrics(supMetricsRes.data);
-        await AsyncStorage.setItem("cached_supervisor_metrics", JSON.stringify(supMetricsRes.data));
+        await AsyncStorage.setItem(APP_CONFIG.CACHE.SUP_METRICS, JSON.stringify(supMetricsRes.data));
+      }
+
+      if (supReqRes?.data) {
+        const mappedReqs = supReqRes.data.map((r: any) => ({
+           id: r.id, companyId: r.company_id, clientId: r.client_id, siteId: r.site_id,
+           status: r.status, notes: r.notes, createdAt: r.created_at, resolvedAt: r.resolved_at
+        }));
+        setSupervisorRequests(mappedReqs);
       }
 
       hasInitialDataRef.current = true;
       setLastSynced(Date.now());
-      await AsyncStorage.setItem('last_synced_timestamp', String(Date.now()));
+      await AsyncStorage.setItem(APP_CONFIG.CACHE.LAST_SYNCED, String(Date.now()));
       console.log("[AppContext] fetchData: Sync SUCCESS.");
     } catch (e) {
       console.error("[AppContext] fetchData CRITICAL error:", e);
@@ -566,10 +608,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         
         const { data: nData } = await supabase.from("notifications").select("*").eq("user_id", data.id).order("created_at", { ascending: false });
         if (nData) setNotifications(nData.map(n => ({
-          id: n.id, userId: n.user_id, title: n.title, message: n.message, type: n.type, isRead: n.is_read, createdAt: n.created_at
+          id: n.id, userId: n.user_id, title: n.title, message: n.message, type: n.type, isRead: n.is_read, createdAt: n.created_at, data: n.data
         })));
 
-        const storedImg = await AsyncStorage.getItem(`profileImage_${data.id}`);
+        const storedImg = await AsyncStorage.getItem(`${APP_CONFIG.CACHE.PROFILE_IMAGE_PREFIX}${data.id}`);
         setProfileImageState(storedImg);
         fetchData();
       } else {
@@ -641,18 +683,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     console.log("[AppContext] Root useEffect initializing...");
     let mounted = true;
     async function init() {
+      if (isInitializingRef.current) {
+        console.log("[AppContext/GSD] Boot: Init already execution, skipping redundant call.");
+        return;
+      }
+      isInitializingRef.current = true;
+      
       try {
+        console.log("[AppContext/GSD] Heartbeat: Initialization started");
         const { data: { session } } = await supabase.auth.getSession();
-        console.log("[AppContext] Initial session check:", session ? "Session Active" : "No Session");
+        console.log("[AppContext/GSD] Heartbeat: session check", session ? "Active" : "None");
         
         // Load Preferences
-        const [storedLng, storedDark, storedNotif, storedSync] = await Promise.all([
+        const [storedLng, storedDark, storedNotif, storedSync, cachedSites, cachedComplaints] = await Promise.all([
           AsyncStorage.getItem('user_language'),
           AsyncStorage.getItem('user_dark_mode'),
           AsyncStorage.getItem('user_notifications'),
-          AsyncStorage.getItem('last_synced_timestamp')
+          AsyncStorage.getItem(APP_CONFIG.CACHE.LAST_SYNCED),
+          AsyncStorage.getItem(APP_CONFIG.CACHE.SITES),
+          AsyncStorage.getItem(APP_CONFIG.CACHE.COMPLAINTS)
         ]);
         
+        // Optimistic UI: Populate from cache immediately
+        if (cachedSites) setSites(JSON.parse(cachedSites));
+        if (cachedComplaints) setComplaints(JSON.parse(cachedComplaints));
+        console.log("[AppContext/GSD] Heartbeat: Cache loaded");
+
         if (storedLng) {
           setLanguageState(storedLng as 'en' | 'hi');
           const i18n = require('../services/i18n').default;
@@ -664,14 +720,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         if (!mounted) return;
         if (session?.user) {
-          console.log("[AppContext] init: Session found, triggering initial profile fetch.");
+          console.log("[AppContext/GSD] Heartbeat: Initializing profile fetch");
           await fetchUserProfile(session.user.id);
+          console.log("[AppContext/GSD] Heartbeat: Profile fetch complete");
         } else {
           setIsAuthLoading(false);
           setLoaded(true);
         }
       } catch (e: any) {
-        console.error("[AppContext] Initialization error:", e);
+        console.error("[AppContext/GSD] Heartbeat: Initialization ERROR", e);
         if (e?.message?.includes("Invalid Refresh Token") || e?.code === 'refresh_token_not_found') {
           console.warn("[AppContext] Session expired/invalid. Forcing sign out.");
           await supabase.auth.signOut();
@@ -680,20 +737,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } finally {
         if (mounted) {
           setLoaded(true);
-          console.log("[AppContext] Initialization complete (loaded=true)");
+          console.log("[AppContext] Initialization sequence cleanup (setLoaded=true)");
         }
       }
     }
     init();
 
-    // Safety fallback: if app is still "loading" after 10 seconds, force loaded state
+    // Safety fallback: if app is still "loading" after 25 seconds, force loaded state
     const timer = setTimeout(() => {
-      if (mounted && !loaded) {
-        console.warn("[AppContext] Safety timeout: Force-setting loaded=true");
+      if (mounted && !loadedRef.current) {
+        console.warn("[AppContext/GSD] Heartbeat: SAFETY WATCHDOG KICKED IN. Forcing loaded=true.");
         setLoaded(true);
         setIsAuthLoading(false);
+        setIsLoading(false);
       }
-    }, 10000);
+    }, 25000);
 
     // 🛡️ Debounced Real-time Data Fetching (Prevent thundering herd)
     let syncTimer: any = null;
@@ -712,12 +770,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const isSameUser = currentUserRef.current?.id === session.user.id;
         
         if (isSameUser && loaded) {
-          console.log("[AppContext] Auth State Change: User matches current and data already loaded. Skipping disruptive fetch.");
+          console.log("[AppContext] Auth State (REFRESHED): User matches current and data already loaded. Skipping re-fetch.");
           setIsAuthLoading(false);
           return;
         }
         
-        console.log(`[AppContext] Role-based data fetch needed (Reason: ${event}), setting isAuthLoading=true`);
+        console.log(`[AppContext] Role-based data fetch needed (Reason: ${event}), currentUserID: ${currentUserRef.current?.id}, sessionID: ${session.user.id}`);
         setIsAuthLoading(true);
         await fetchUserProfile(session.user.id);
         setLoaded(true); // Ensure loaded is true after fetch
@@ -742,11 +800,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         
         // 🛡️ Data Privacy: Purge all cached data from disk
         AsyncStorage.multiRemove([
-          "cached_sites",
-          "cached_complaints",
-          "cached_site_metrics",
-          "cached_supervisor_metrics",
-          'last_synced_timestamp'
+          APP_CONFIG.CACHE.SITES,
+          APP_CONFIG.CACHE.COMPLAINTS,
+          APP_CONFIG.CACHE.SITE_METRICS,
+          APP_CONFIG.CACHE.SUP_METRICS,
+          APP_CONFIG.CACHE.LAST_SYNCED
         ]).catch(err => console.warn("[AppContext] Cache purge error:", err));
         
         setIsAuthLoading(false);
@@ -863,6 +921,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       mainChannel.unsubscribe();
     };
   }, []); // Only run once on mount
+
+  // 🚀 Real-time Pulse Listener: Listen for individual pings to Founders/Admins/Supervisors
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    console.log("[AppContext/Pulse] Initializing Real-time channel for user:", currentUser.id);
+    
+    const channel = supabase
+      .channel(`public:notifications:user_id=eq.${currentUser.id}`)
+      .on(
+        'postgres_changes' as any,
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${currentUser.id}`
+        },
+        (payload: any) => {
+          console.log("[AppContext/Pulse] NEW EVENT:", payload.new);
+          handlePulseEvent(payload.new);
+        }
+      )
+      .subscribe((status) => {
+        console.log("[AppContext/Pulse] Channel status:", status);
+      });
+
+    return () => {
+      console.log("[AppContext/Pulse] Cleaning up Real-time channel");
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id]);
+
+  const handlePulseEvent = useCallback(async (notification: any) => {
+    try {
+      // 1. Tactile Ping
+      HapticsService.success();
+
+      // 2. Visual Local Notification
+      await NotificationService.sendLocalNotification(
+        notification.title || "Pulse Update",
+        notification.message || "A change was detected in your facility.",
+        notification.data || {}
+      );
+
+      // 3. Selective Data Refresh (Individual pings trigger sync)
+      if (notification.type === 'complaint_created' || notification.type === 'complaint_resolved') {
+        console.log("[AppContext/Pulse] Refreshing data...");
+        fetchData({ forceSync: true });
+      }
+    } catch (e) {
+      console.error("[AppContext/Pulse] Event handling error:", e);
+    }
+  }, [fetchData]);
 
   const logout = useCallback(async () => {
     console.log("[AppContext] Initiating manual sign out...");
@@ -1014,8 +1125,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Check supervisor site limit (max 5)
     if (data.supervisorId) {
       const assignedCount = sites.filter(s => s.assignedSupervisorId === data.supervisorId).length;
-      if (assignedCount >= 5) {
-        throw new Error("This supervisor already has 5 assigned sites (maximum limit reached).");
+      if (assignedCount >= 1) {
+        throw new Error("This supervisor is already assigned to another site. Please remove them from their current site first.");
       }
     }
 
@@ -1058,8 +1169,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Check supervisor site limit if changing assignment
     if (updates.assignedSupervisorId) {
       const assignedCount = sites.filter(s => s.assignedSupervisorId === updates.assignedSupervisorId && s.id !== id).length;
-      if (assignedCount >= 5) {
-        throw new Error("This supervisor already has 5 assigned sites (maximum limit reached).");
+      if (assignedCount >= 1) {
+        throw new Error("This supervisor is already assigned to another site. Please remove them from their current site first.");
       }
       dbUpdates.assigned_supervisor_id = updates.assignedSupervisorId;
     } else if (updates.assignedSupervisorId === null) {
@@ -1174,6 +1285,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return await ApiService.uploadImage(path, blob);
   }, []);
 
+  const checkLocationEnabled = useCallback(async () => {
+    try {
+      const isEnabled = await Location.hasServicesEnabledAsync();
+      if (!isEnabled) return false;
+      const { status } = await Location.getForegroundPermissionsAsync();
+      return status === 'granted';
+    } catch (e) {
+      return false;
+    }
+  }, []);
+
   const provisionClient = useCallback(async (siteId: string, email: string, name: string, password?: string, photoUri?: string, companyId?: string) => {
     console.log(`[AppContext] provisionClient: STARTING for site=${siteId}, email=${email}`);
     try {
@@ -1209,7 +1331,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         // 3. Create User record
-        console.log("[AppContext] provisionClient: Inserting user record...");
+        console.log("[AppContext] provisionClient: Syncing user record with profile...");
         const createdUser = await ApiService.createUserProfile({
             supabase_id: authId,
             email: email.toLowerCase(),
@@ -1228,7 +1350,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
              console.log("[AppContext] provisionClient: Uploading photo...");
              const publicUrl = await uploadImage(photoUri, `profiles/${targetUserId}_${Date.now()}.jpg`);
              console.log("[AppContext] provisionClient: Photo uploaded SUCCESS:", publicUrl);
-             await AsyncStorage.setItem(`profileImage_${targetUserId}`, publicUrl);
+             await AsyncStorage.setItem(`${APP_CONFIG.CACHE.PROFILE_IMAGE_PREFIX}${targetUserId}`, publicUrl);
           } catch (imgError) {
              console.error("[AppContext] provisionClient: Image upload failed:", imgError);
           }
@@ -1256,19 +1378,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [fetchData]);
 
   const deleteCompany = useCallback(async (id: string) => {
-    console.log(`[AppContext] deleteCompany: Starting hard delete for company=${id}`);
+    console.log(`[AppContext] deleteCompany: Starting safe sequential purge for company=${id}`);
     try {
-      await ApiService.deleteCompany(id);
-      console.log(`[AppContext] deleteCompany: Permanent removal success.`);
+      // 1. Mark for deletion to prevent new interactions
+      await supabase.from('companies').update({ status: 'deleting' as any }).eq('id', id);
       
-      // If the founder just deleted their own current company, what happens? 
-      // Usually, they'd be redirected or have to select a new one.
+      await ApiService.deleteCompany(id);
+      console.log(`[AppContext] deleteCompany: Full purge sequence SUCCESS.`);
+      
+      if (selectedCompanyId === id) setSelectedCompanyId(null);
       await fetchData({ forceSync: true });
     } catch (e: any) {
-      console.error("[AppContext] deleteCompany error:", e);
+      console.error("[AppContext] deleteCompany error during sequence:", e);
+      // Attempt to revert status if it failed early
+      await supabase.from('companies').update({ status: 'active' as any }).eq('id', id);
       throw e;
     }
-  }, [fetchData]);
+  }, [fetchData, selectedCompanyId]);
 
   const getCompanyComplaints = useCallback((id: string) => complaints.filter(c => c.companyId === id), [complaints]);
   const getCompanySites = useCallback((id: string) => sites.filter(s => s.companyId === id), [sites]);
@@ -1329,8 +1455,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addNotification = useCallback(async (userId: string, type: any, data: any) => {
     // 🎭 Get Professional Message based on Role
-    const targetUser = users.find(u => u.id === userId);
-    if (!targetUser) return;
+    let targetUser = users.find(u => u.id === userId);
+    
+    // 🛡️ If user not found in cache, fetch them to ensure notification delivery
+    if (!targetUser) {
+      console.log(`[AppContext] addNotification: User ${userId} not in cache, fetching from DB...`);
+      const { data } = await supabase.from('users').select('id, role, expo_push_token, notifications_enabled').eq('id', userId).single();
+      if (data) {
+        targetUser = {
+          ...data,
+          companyId: data.company_id,
+          hasOnboarded: data.has_onboarded,
+          notificationsEnabled: data.notifications_enabled
+        };
+      }
+    }
+    
+    if (!targetUser) {
+      console.warn(`[AppContext] addNotification: Target user ${userId} NOT FOUND. Abandoning.`);
+      return;
+    }
     
     const { title, body } = getProfessionalNotification(targetUser.role, type, data);
 
@@ -1338,7 +1482,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       user_id: userId, 
       title, 
       message: body, 
-      type 
+      type,
+      data
     });
     
     // 🔥 Send local notification if it's for the immediate user
@@ -1370,6 +1515,10 @@ const addComplaint = useCallback(async (complaint: any) => {
       after_media_url: complaint.afterMediaUrl,
       started_at: complaint.startedAt,
       resolved_at: complaint.resolvedAt,
+      is_anonymous: complaint.isAnonymous || false,
+      anonymous_name: complaint.anonymousName || null,
+      floor: complaint.floor || null,
+      room_number: complaint.roomNumber || null,
     };
     console.log("[addComplaint] Inserting complaint:", JSON.stringify(dbComplaint, null, 2));
     const newComplaint = await ApiService.addComplaint(dbComplaint);
@@ -1410,6 +1559,7 @@ const addComplaint = useCallback(async (complaint: any) => {
     if (updates.floor !== undefined) { dbUpdates.floor = updates.floor; delete dbUpdates.floor; }
     if (updates.roomNumber !== undefined) { dbUpdates.room_number = updates.roomNumber; delete dbUpdates.roomNumber; }
     if (updates.phaseHistory !== undefined) { dbUpdates.phase_history = updates.phaseHistory; delete dbUpdates.phaseHistory; }
+    if (updates.currentPhase !== undefined) { dbUpdates.current_phase = updates.currentPhase; delete dbUpdates.currentPhase; }
 
     const { error } = await supabase.from("complaints").update(dbUpdates).eq("id", id);
     if (error) throw error;
@@ -1502,8 +1652,8 @@ const addComplaint = useCallback(async (complaint: any) => {
   const assignSupervisorToSite = useCallback(async (siteId: string, supervisorId: string | null) => {
     if (supervisorId) {
       const assignedCount = sites.filter(s => s.assignedSupervisorId === supervisorId && s.id !== siteId).length;
-      if (assignedCount >= 5) {
-        throw new Error("This supervisor already has 5 assigned sites (maximum limit reached).");
+      if (assignedCount >= 1) {
+        throw new Error("This supervisor is already assigned to another site.");
       }
     }
     const { error } = await supabase.from("sites").update({ assigned_supervisor_id: supervisorId }).eq("id", siteId);
@@ -1526,6 +1676,44 @@ const addComplaint = useCallback(async (complaint: any) => {
       await updateComplaintPhase(complaintId, 'assigned');
     }
   }, [updateComplaintPhase]);
+  
+  const calculateDistance = useCallback((lat1: number, lon1: number, lat2: number, lon2: number) => {
+    return LocationService.getDistance({ latitude: lat1, longitude: lon1 }, { latitude: lat2, longitude: lon2 });
+  }, []);
+
+  const checkProximity = useCallback(async (siteId: string, customRadius?: number) => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        throw new Error("Location permission denied");
+      }
+
+      const location = await Location.getCurrentPositionAsync({ 
+        accuracy: Location.Accuracy.Balanced,
+        maxAge: 30000,
+        timeout: 10000
+      });
+      
+      const site = sites.find(s => s.id === siteId);
+      
+      if (!site || !LocationService.isValidCoords({ latitude: site.latitude || 0, longitude: site.longitude || 0 })) {
+        // If site coordinates are missing or (0,0), we can't verify, so we return true with a warning
+        console.warn(`[AppContext] Site ${siteId} has missing/invalid coordinates. Proximity bypass active.`);
+        return { isInside: true, distance: null };
+      }
+
+      const distance = LocationService.getDistance(
+        { latitude: location.coords.latitude, longitude: location.coords.longitude },
+        { latitude: site.latitude as number, longitude: site.longitude as number }
+      );
+
+      const radius = customRadius || site.radiusMeters || APP_CONFIG.GEOFENCE.DEFAULT_RADIUS;
+      return { isInside: distance <= radius, distance };
+    } catch (e) {
+      console.error("[AppContext] checkProximity error:", e);
+      return { isInside: false, distance: null };
+    }
+  }, [sites]);
 
   const deleteComplaint = useCallback(async (id: string) => {
     const c = complaints.find(comp => comp.id === id);
@@ -1575,6 +1763,68 @@ const addComplaint = useCallback(async (complaint: any) => {
     }
   }, []);
 
+  const requestSupervisorAllocation = useCallback(async (siteId: string, notes?: string) => {
+    const user = currentUserRef.current;
+    if (!user || !user.companyId) return;
+    
+    await ApiService.createSupervisorRequest({
+      company_id: user.companyId,
+      client_id: user.id,
+      site_id: siteId,
+      notes,
+      status: 'pending'
+    });
+    
+    // Notify Client of success
+    const site = sites.find(s => s.id === siteId);
+    await addNotification(user.id, 'system', {
+      title: "Allocation Requested",
+      message: `Supervisor request sent for ${site?.name || 'Site'}`
+    });
+    
+    await fetchData({ forceSync: true });
+  }, [sites, addNotification, fetchData]);
+
+  const resolveSupervisorRequest = useCallback(async (requestId: string, status: 'approved' | 'rejected', supervisorId?: string) => {
+    const request = supervisorRequests.find(r => r.id === requestId);
+    if (!request) return;
+    
+    if (status === 'approved' && supervisorId) {
+      // 1. Double check supervisor isn't already assigned
+      const assignedCount = sites.filter(s => s.assignedSupervisorId === supervisorId).length;
+      if (assignedCount >= 1) {
+        throw new Error("This supervisor was just assigned to another site. Please select another.");
+      }
+
+      // 2. Assign supervisor to site
+      await ApiService.updateSite(request.siteId, { assigned_supervisor_id: supervisorId });
+      
+      // 2. Update request status
+      await ApiService.updateSupervisorRequest(requestId, {
+        status: 'approved',
+        resolved_at: new Date().toISOString()
+      });
+      
+      // 3. Notify Client
+      await addNotification(request.clientId, 'system', {
+        title: "Supervisor Assigned",
+        message: "A supervisor has been assigned to your site as requested."
+      });
+    } else if (status === 'rejected') {
+       await ApiService.updateSupervisorRequest(requestId, {
+        status: 'rejected',
+        resolved_at: new Date().toISOString()
+      });
+      
+      await addNotification(request.clientId, 'system', {
+        title: "Request Declined",
+        message: "Your supervisor allocation request was declined by the administrator."
+      });
+    }
+    
+    await fetchData({ forceSync: true });
+  }, [supervisorRequests, addNotification, fetchData]);
+
   const value = useMemo(() => ({
     currentUser,
     isAuthLoading,
@@ -1612,6 +1862,9 @@ const addComplaint = useCallback(async (complaint: any) => {
     provisionClient,
     deleteComplaint,
     deleteSite,
+    supervisorRequests,
+    requestSupervisorAllocation,
+    resolveSupervisorRequest,
     isLoading,
     profileImage,
      setProfileImage,
@@ -1641,6 +1894,9 @@ const addComplaint = useCallback(async (complaint: any) => {
       deleteAccount,
       deleteCompany,
       resetUserPassword,
+      calculateDistance,
+      checkProximity,
+      checkLocationEnabled,
       loaded
    }), [
     currentUser, isAuthLoading, selectedCompanyId, companies, users, sites, complaints,
@@ -1650,11 +1906,13 @@ const addComplaint = useCallback(async (complaint: any) => {
     addNotification, fetchData, signIn, signUp, createSupervisor, deleteUser,
     updateUser, completeOnboarding, createCompany, createSite, updateSite,
     assignSupervisorToComplaint, uploadImage, provisionClient, deleteComplaint,
-     deleteSite, isLoading, profileImage, setProfileImage,
+     deleteSite, supervisorRequests, requestSupervisorAllocation, resolveSupervisorRequest, 
+     isLoading, profileImage, setProfileImageState,
      siteMetrics, systemLogs, supervisorMetrics, logSystemEvent,
-      language, setLanguage, isDarkMode, setIsDarkMode, notificationsEnabled, setNotificationsEnabled,
+      language, setLanguageState, isDarkMode, setIsDarkModeState, notificationsEnabled, setNotificationsEnabledState,
       lastSynced, loadMoreComplaints, loadMoreLogs, loadMoreUsers, loadMoreSites,
-      systemSettings, appIssues, updateSystemSettings, reportAppIssue, updateAppIssue, broadcastNotification, commenceWork, updateComplaintPhase, deleteAccount, deleteCompany, resetUserPassword, loaded
+      systemSettings, appIssues, updateSystemSettings, reportAppIssue, updateAppIssue, broadcastNotification, commenceWork, updateComplaintPhase, deleteAccount, deleteCompany, resetUserPassword,
+      calculateDistance, checkProximity, checkLocationEnabled, loaded
    ]);
 
   if (!loaded) return <LoadingScreen />;

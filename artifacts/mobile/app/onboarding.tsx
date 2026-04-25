@@ -90,10 +90,17 @@ const ONBOARDING_DATA = {
     },
     {
       title: "Instant Reporting",
-      desc: "Encounter an issue? Use the 'Report Issue' portal to instantly log complaints with photo evidence.",
+      desc: "Encounter an issue? Use the 'Report Issue' portal to instantly log complaints with high-fidelity evidence.",
       icon: "plus-circle",
       color: "#EF4444",
       secondaryColor: "#F87171"
+    },
+    {
+      title: "Visual Evidence",
+      desc: "A picture is worth a thousand words. Capturing a photo helps our staff find and fix issues 3x faster.",
+      icon: "camera",
+      color: "#EC4899",
+      secondaryColor: "#F472B6"
     },
     {
       title: "Real-Time Tracking",

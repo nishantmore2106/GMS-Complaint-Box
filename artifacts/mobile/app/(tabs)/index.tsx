@@ -1,5 +1,6 @@
-// FORCE_REFRESH_V11_DECOMPOSED
 import { Feather } from "@expo/vector-icons";
+import { PremiumRefreshVisuals } from "@/components/PremiumRefreshVisuals";
+import Animated, { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
 import { SoftInput } from '@/components/SoftInput';
 import { SoftButton } from '@/components/SoftButton';
 import { SiteAllocationModal } from '@/components/SiteAllocationModal';
@@ -12,7 +13,6 @@ import React, { useMemo, useState, useEffect } from "react";
 import {
   Platform,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -28,7 +28,6 @@ import { useToast } from "@/components/Toast";
 import { useTranslation } from "react-i18next";
 import { DashboardHeader } from "@/components/DashboardHeader";
 
-// New Decomposed Components
 import { FounderDashboard } from "@/components/dashboard/FounderDashboard";
 import { SupervisorDashboard } from "@/components/dashboard/SupervisorDashboard";
 import { ClientDashboard } from "@/components/dashboard/ClientDashboard";
@@ -36,33 +35,68 @@ import { QuickAddSupervisorModal } from "@/components/QuickAddSupervisorModal";
 import { QuickAddSiteModal } from "@/components/QuickAddSiteModal";
 import { DashboardStatsSkeleton } from "@/components/Skeleton";
 
+import { ClientTermsModal } from "@/components/ClientTermsModal";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 export default function HomeScreen() {
   const {
     currentUser,
     selectedCompanyId,
     getCompanyComplaints,
     refreshData,
-    notifications,
     sites,
     users,
     createSupervisor,
     createSite,
-    provisionClient,
     siteMetrics,
     supervisorMetrics,
     isDarkMode,
     getCompanyById,
-    profileImage,
-    updateSite,
     isLoading
   } = useApp();
 
-  const { width } = useWindowDimensions();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
 
   const [refreshing, setRefreshing] = useState(false);
+  const scrollY = useSharedValue(0);
+  const [showClientTerms, setShowClientTerms] = useState(false);
+
+  const role = currentUser?.role;
+
+  useEffect(() => {
+    const checkTerms = async () => {
+      if (role === 'client' && currentUser?.id) {
+        const accepted = await AsyncStorage.getItem(`gms_terms_accepted_${currentUser.id}`);
+        if (!accepted) {
+          setShowClientTerms(true);
+        }
+      }
+    };
+    checkTerms();
+  }, [role, currentUser?.id]);
+
+  const handleAcceptTerms = async () => {
+    if (currentUser?.id) {
+      await AsyncStorage.setItem(`gms_terms_accepted_${currentUser.id}`, 'true');
+      setShowClientTerms(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  };
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await refreshData();
+    setRefreshing(false);
+  };
+
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals Visibility
@@ -92,26 +126,21 @@ export default function HomeScreen() {
   const [isMapVisible, setIsMapVisible] = useState(false);
   const [siteLat, setSiteLat] = useState("");
   const [siteLong, setSiteLong] = useState("");
-
   const companyId = selectedCompanyId ?? currentUser?.companyId ?? "";
-  const role = currentUser?.role;
+  const allComplaints = getCompanyComplaints(companyId);
 
-  // Onboarding check
   useEffect(() => {
     if (currentUser && currentUser.hasOnboarded === false) {
       router.replace("/onboarding");
     }
   }, [currentUser]);
 
-  // Data Fetching & Computed Stats
-  const complaints = getCompanyComplaints(companyId);
-  
   const clientStats = useMemo(() => {
     if (role !== 'client') return null;
-    const myComplaints = complaints.filter(c => c.clientId === currentUser?.id);
+    const myComplaints = allComplaints.filter(c => c.clientId === currentUser?.id);
     const mySite = sites.find(s => s.clientId === currentUser?.id);
     
-    const siteComplaints = mySite ? complaints.filter(c => c.siteId === mySite.id && c.status !== 'resolved') : [];
+    const siteComplaints = mySite ? allComplaints.filter(c => c.siteId === mySite.id && c.status !== 'resolved') : [];
     const activeCount = siteComplaints.length;
     const highPriorityCount = siteComplaints.filter(c => c.priority === 'high').length;
     
@@ -134,13 +163,13 @@ export default function HomeScreen() {
       siteActiveCount: activeCount,
       alerts: []
     };
-  }, [role, complaints, currentUser, sites, users]);
+  }, [role, allComplaints, currentUser, sites, users]);
 
   const supervisorStats = useMemo(() => {
     if (role !== 'supervisor') return null;
     const mySites = sites.filter(s => s.assignedSupervisorId === currentUser?.id);
     const mySiteIds = mySites.map(s => s.id);
-    const myComplaints = complaints.filter(c => 
+    const myComplaints = allComplaints.filter(c => 
       c.supervisorId === currentUser?.id || 
       mySiteIds.includes(c.siteId)
     );
@@ -156,7 +185,7 @@ export default function HomeScreen() {
       nextBest: myComplaints.filter(c => c.status === 'pending').sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0],
       progress: (pending + inProgress) > 0 ? completedToday / (pending + inProgress + completedToday) : 1,
       mySites: mySites.map(s => {
-        const siteComplaints = complaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
+        const siteComplaints = allComplaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
         const activeCount = siteComplaints.length;
         const highPriorityCount = siteComplaints.filter(c => c.priority === 'high').length;
         
@@ -176,13 +205,12 @@ export default function HomeScreen() {
       }),
       activeTasks: myComplaints.filter(c => c.status !== 'resolved').sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     };
-  }, [role, complaints, currentUser, sites]);
+  }, [role, allComplaints, currentUser, sites]);
 
   const founderStats = useMemo(() => {
     if (role !== 'founder') return null;
-    const activeIssues = complaints.filter(c => c.status !== 'resolved').length;
-    const resolvedToday = complaints.filter(c => c.status === 'resolved' && new Date(c.resolvedAt || "").toDateString() === new Date().toDateString()).length;
-    const criticalSites = siteMetrics.filter(m => m.status === 'critical');
+    const activeIssues = allComplaints.filter(c => c.status !== 'resolved').length;
+    const resolvedToday = allComplaints.filter(c => c.status === 'resolved' && new Date(c.resolvedAt || "").toDateString() === new Date().toDateString()).length;
     
     // Daily Bar Data for Founder (Last 7 Days)
     const chartData = [];
@@ -192,7 +220,7 @@ export default function HomeScreen() {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       const dayStr = d.toDateString();
-      const count = complaints.filter(c => 
+      const count = allComplaints.filter(c => 
         c.status === 'resolved' && 
         new Date(c.resolvedAt || c.createdAt).toDateString() === dayStr
       ).length;
@@ -211,11 +239,11 @@ export default function HomeScreen() {
       activeIssueCount: activeIssues,
       resolvedTodayCount: resolvedToday,
       criticalSiteCount: sites.filter(s => {
-        const active = complaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
+        const active = allComplaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
         return active.some(c => c.priority === 'high') || active.length >= 3;
       }).length,
       criticalSites: sites.filter(s => {
-        const active = complaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
+        const active = allComplaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
         return active.some(c => c.priority === 'high') || active.length >= 3;
       }).slice(0, 5),
       topSupervisors,
@@ -223,7 +251,7 @@ export default function HomeScreen() {
       healthProgress: activeIssues > 10 ? 0.4 : (activeIssues > 5 ? 0.7 : 0.95),
       healthMessage: activeIssues > 10 ? "Critical workload peak" : (activeIssues > 0 ? "Operations active" : "All operations stable")
     };
-  }, [role, complaints, siteMetrics, sites, supervisorMetrics, users]);
+  }, [role, allComplaints, siteMetrics, sites, supervisorMetrics, users]);
 
   const activeSites = useMemo(() => {
     const companySites = sites.filter(s => s.companyId === companyId);
@@ -231,7 +259,7 @@ export default function HomeScreen() {
     if (role === 'supervisor') filtered = companySites.filter(s => s.assignedSupervisorId === currentUser?.id);
     
     return filtered.slice(0, 10).map(s => {
-      const siteComplaints = complaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
+      const siteComplaints = allComplaints.filter(c => c.siteId === s.id && c.status !== 'resolved');
       const activeCount = siteComplaints.length;
       const highPriorityCount = siteComplaints.filter(c => c.priority === 'high').length;
       
@@ -247,29 +275,18 @@ export default function HomeScreen() {
         isCritical: health === 'critical'
       };
     });
-  }, [sites, complaints, companyId, role, currentUser]);
+  }, [sites, allComplaints, companyId, role, currentUser]);
 
   const filteredPersonnel = useMemo(() => {
     if (role !== 'founder' || !searchQuery.trim()) return [];
     const q = searchQuery.toLowerCase();
+    // For Founders, search all. For others, this returns empty.
     return users.filter(u =>
       (u.name || "").toLowerCase().includes(q) ||
       (u.email || "").toLowerCase().includes(q)
     );
   }, [users, role, searchQuery]);
 
-  // Event Handlers
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    try {
-      await refreshData();
-    } catch (e) {
-      console.error("[Home] Refresh failed:", e);
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const handleCreateSupervisor = async () => {
     if (!supName || !supEmail || !supPass) {
@@ -394,11 +411,20 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.root, isDarkMode && styles.darkBg]}>
-      {/* Global Refreshable Container */}
-      <ScrollView
+      <PremiumRefreshVisuals scrollY={scrollY} refreshing={refreshing} isDarkMode={isDarkMode} />
+      
+      <Animated.ScrollView
+         onScroll={scrollHandler}
+         scrollEventThrottle={16}
          showsVerticalScrollIndicator={false}
          refreshControl={
-           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={isDarkMode ? 'white' : Colors.primary} />
+           <RefreshControl 
+             refreshing={refreshing} 
+             onRefresh={onRefresh} 
+             tintColor="transparent"
+             colors={["transparent"]}
+             style={{ backgroundColor: 'transparent' }}
+           />
          }
          contentContainerStyle={{ paddingBottom: 100 }}
       >
@@ -491,7 +517,7 @@ export default function HomeScreen() {
             )}
           </View>
         )}
-      </ScrollView>
+      </Animated.ScrollView>
 
       {/* Shared Modals */}
       <QuickAddSupervisorModal 
@@ -543,7 +569,14 @@ export default function HomeScreen() {
               </View>
               <View style={{ alignItems: 'center', padding: 20 }}>
                  <Text style={[styles.darkText, { fontSize: 18, fontFamily: 'Inter_700Bold' }]}>{clientStats?.supervisor?.name || "Assigned Manager"}</Text>
-                 <Text style={styles.emptyStateText}>{clientStats?.supervisor?.email || "Email pending"}</Text>
+                 <Text style={styles.emptyStateText}>
+                   {clientStats?.supervisor?.email === 'REDACTED' ? "Contact restricted to App" : (clientStats?.supervisor?.email || "Email pending")}
+                 </Text>
+                 
+                 <View style={styles.privacyBadge}>
+                    <Feather name="shield" size={12} color="#94A3B8" />
+                    <Text style={styles.privacyBadgeText}>Secure Pulse Profile</Text>
+                 </View>
               </View>
            </View>
         </View>
@@ -557,6 +590,12 @@ export default function HomeScreen() {
         onAllocate={handleAllocate}
         isDarkMode={isDarkMode}
       />
+
+      <ClientTermsModal 
+        visible={showClientTerms}
+        onAccept={handleAcceptTerms}
+        isDarkMode={isDarkMode}
+      />
     </View>
   );
 }
@@ -564,25 +603,43 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.bg },
   darkBg: { backgroundColor: Colors.dark.bg },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.secondary, marginHorizontal: 24, borderRadius: 100, paddingHorizontal: 20, height: 56, marginTop: 4, marginBottom: 20 },
-  darkSearchBar: { backgroundColor: Colors.dark.surfaceElevated, borderColor: Colors.dark.border, borderWidth: 1 },
+  searchContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: Colors.secondary, 
+    marginHorizontal: 24, 
+    borderRadius: 20, 
+    paddingHorizontal: 20, 
+    height: 60, 
+    marginTop: 4, 
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'transparent'
+  },
+  darkSearchBar: { 
+    backgroundColor: Colors.dark.surface, 
+    borderColor: Colors.dark.borderStrong, 
+    borderWidth: 1 
+  },
   searchIcon: { marginRight: 12 },
   searchInput: { flex: 1, fontSize: 15, fontFamily: 'Inter_500Medium', color: Colors.text },
   darkText: { color: 'white' },
   darkTextSub: { color: Colors.dark.textSub },
-  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border, borderWidth: 1 },
+  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.borderStrong, borderWidth: 1 },
   searchResults: { paddingTop: 10 },
-  sectionHeading: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: Colors.text, paddingHorizontal: 24, marginBottom: 16 },
-  siteCard: { padding: 16, borderRadius: 20, backgroundColor: 'white', marginBottom: 12 },
+  sectionHeading: { fontSize: 20, fontFamily: 'Inter_900Black', color: Colors.text, paddingHorizontal: 24, marginBottom: 16 },
+  siteCard: { padding: 24, borderRadius: 28, backgroundColor: 'white', marginBottom: 16, marginHorizontal: 24, borderWidth: 1, borderColor: '#F1F5F9' },
   siteCardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  siteName: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: '#111827', marginBottom: 4 },
+  siteName: { fontSize: 17, fontFamily: 'Inter_800ExtraBold', color: '#111827', marginBottom: 4 },
   address: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6B7280' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
-  statusTxt: { fontSize: 10, fontFamily: 'Inter_800ExtraBold', letterSpacing: 0.5 },
+  statusBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  statusTxt: { fontSize: 11, fontFamily: 'Inter_800ExtraBold', letterSpacing: 0.5 },
   emptyState: { padding: 40, alignItems: 'center' },
   emptyStateText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: Colors.textMuted },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(17, 24, 39, 0.4)', justifyContent: 'flex-end' },
-  supProfileCard: { width: '100%', padding: 24, borderRadius: 40, backgroundColor: 'white' },
+  privacyBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 100, backgroundColor: '#F8FAFC' },
+  privacyBadgeText: { fontSize: 10, fontFamily: 'Inter_800ExtraBold', color: '#94A3B8', letterSpacing: 0.5 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(11, 15, 25, 0.6)', justifyContent: 'flex-end' },
+  supProfileCard: { width: '100%', padding: 28, borderRadius: 40, backgroundColor: 'white' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   modalTitle: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#111827' },
   closeBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },

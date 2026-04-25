@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Modal, Pressable, Dimensions, ActivityIndicator, Alert } from 'react-native';
-import MapView, { Marker, Region } from 'react-native-maps';
+import { StyleSheet, View, Text, Pressable, Dimensions, ActivityIndicator, Alert, Platform, Modal, InteractionManager } from 'react-native';
+import MapView, { Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/colors';
 import { SoftButton } from './SoftButton';
 import { SoftInput } from './SoftInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SoftCard } from './SoftCard';
 
 interface MapPickerProps {
   isVisible: boolean;
@@ -31,6 +32,8 @@ export const MapPicker = ({ isVisible, onClose, onConfirm, initialLocation, isDa
   const [isSearching, setIsSearching] = useState(false);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const mapRef = useRef<MapView>(null);
+  const fetchTimer = useRef<any>(null);
+  const lastGeocodedCoords = useRef<{ lat: number; lon: number } | null>(null);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -77,13 +80,47 @@ export const MapPicker = ({ isVisible, onClose, onConfirm, initialLocation, isDa
 
   const requestCurrentLocation = async () => {
     setLoading(true);
+    setAddress("Acquiring GPS lock...");
+    
+    // 🛡️ GSD Optimization: Wait briefly for Modal transition
+    await new Promise(resolve => setTimeout(resolve, 400));
+
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      // Add a 5s watchdog for permissions
+      const permissionPromise = Location.requestForegroundPermissionsAsync();
+      const permTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("PERM_TIMEOUT")), 5000));
+      const { status } = await Promise.race([permissionPromise, permTimeout]) as any;
+
       if (status !== 'granted') {
          setLoading(false);
+         setAddress("Location permission denied");
          return;
       }
-      const location = await Location.getCurrentPositionAsync({});
+
+      // Quick check for last known location
+      const lastKnown = await Location.getLastKnownPositionAsync({}).catch(() => null);
+      if (lastKnown) {
+        const lastRegion = {
+          ...region,
+          latitude: lastKnown.coords.latitude,
+          longitude: lastKnown.coords.longitude,
+        };
+        setRegion(lastRegion);
+        mapRef.current?.animateToRegion(lastRegion, 500);
+        fetchAddress(lastKnown.coords.latitude, lastKnown.coords.longitude);
+      }
+
+      // Precise location with 8s watchdog
+      const locationPromise = Location.getCurrentPositionAsync({ 
+        accuracy: Location.Accuracy.Balanced 
+      });
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("GPS_TIMEOUT")), 8000)
+      );
+
+      const location = await Promise.race([locationPromise, timeoutPromise]) as Location.LocationObject;
+      
       const newRegion = {
         ...region,
         latitude: location.coords.latitude,
@@ -92,36 +129,52 @@ export const MapPicker = ({ isVisible, onClose, onConfirm, initialLocation, isDa
       setRegion(newRegion);
       mapRef.current?.animateToRegion(newRegion, 500);
       fetchAddress(location.coords.latitude, location.coords.longitude);
-    } catch (error) {
-      console.error("MapPicker Error:", error);
+    } catch (error: any) {
+      console.warn("[MapPicker/GSD] Location acquisition timeout/fail:", error.message);
+      if (address === "Acquiring GPS lock..." || address === "Locating...") {
+        setAddress("Location search timed out. Please drag marker manually.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchAddress = async (lat: number, lon: number) => {
-    setIsReverseGeocoding(true);
-    try {
-      const result = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lon });
-      if (result && result.length > 0) {
-        const item = result[0];
-        const addr = [
-          item.name,
-          item.street,
-          item.district,
-          item.city,
-          item.region,
-          item.postalCode
-        ].filter(Boolean).join(", ");
-        setAddress(addr || "Unknown Location");
-      } else {
-        setAddress(`${lat.toFixed(4)}, ${lon.toFixed(4)}`);
-      }
-    } catch (e) {
-      setAddress(`${lat.toFixed(4)}, ${lon.toFixed(4)}`);
-    } finally {
-      setIsReverseGeocoding(false);
+  const fetchAddress = (lat: number, lon: number) => {
+    if (fetchTimer.current) clearTimeout(fetchTimer.current);
+    
+    // 🛡️ GSD Threshold Check: Only geocode if moved > 0.0005 degrees (~50m)
+    if (lastGeocodedCoords.current) {
+        const dLat = Math.abs(lastGeocodedCoords.current.lat - lat);
+        const dLon = Math.abs(lastGeocodedCoords.current.lon - lon);
+        if (dLat < 0.0005 && dLon < 0.0005) {
+            console.log("[MapPicker] Skipping geocode (under threshold)");
+            return;
+        }
     }
+
+    fetchTimer.current = setTimeout(async () => {
+      setIsReverseGeocoding(true);
+      try {
+        // 🛡️ GSD WATCHDOG: 4s limit for Reverse Geocode
+        const geocodePromise = Location.reverseGeocodeAsync({ latitude: lat, longitude: lon });
+        const geoTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("GEO_TIMEOUT")), 4000));
+        
+        const result = await Promise.race([geocodePromise, geoTimeout]) as Location.LocationGeocodedAddress[];
+        if (result && result.length > 0) {
+          const item = result[0];
+          const addr = [item.name, item.street, item.district, item.city, item.region, item.postalCode].filter(Boolean).join(", ");
+          setAddress(addr || "Unknown Location");
+          lastGeocodedCoords.current = { lat, lon };
+        } else {
+          setAddress(`${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+        }
+      } catch (err: any) {
+        console.warn("[MapPicker] Reverse geocode slow/failed:", err.message);
+        // Do not update address on error to avoid flickering during rate limits
+      } finally {
+        setIsReverseGeocoding(false);
+      }
+    }, 1200); // 🛡️ GSD Optimization: 1.2s Debounce to avoid rate limits
   };
 
   const onRegionChangeComplete = (newRegion: Region) => {
@@ -138,11 +191,13 @@ export const MapPicker = ({ isVisible, onClose, onConfirm, initialLocation, isDa
     onClose();
   };
 
+  if (!isVisible) return null;
+
   return (
-    <Modal visible={isVisible} animationType="slide" transparent>
+    <View style={[StyleSheet.absoluteFill, { zIndex: 9999, elevation: 10, backgroundColor: 'white' }]}>
       <View style={[styles.overlay, isDarkMode && styles.darkOverlay]}>
-        <View style={[styles.container, isDarkMode && styles.darkContainer]}>
-          <View style={[styles.header, { paddingTop: 20 }]}>
+        <View style={[styles.container, isDarkMode && styles.darkContainer, { height: '100%', borderTopLeftRadius: 0, borderTopRightRadius: 0 }]}>
+          <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
              <Text style={[styles.title, isDarkMode && styles.darkText]}>Mark Site Location</Text>
              <Pressable onPress={onClose} style={[styles.closeBtn, isDarkMode && styles.darkBtn]}>
                 <Feather name="x" size={24} color={isDarkMode ? 'white' : '#111827'} />
@@ -150,14 +205,23 @@ export const MapPicker = ({ isVisible, onClose, onConfirm, initialLocation, isDa
           </View>
 
           <View style={styles.mapContainer}>
-            <MapView
-              ref={mapRef}
-              style={styles.map}
-              initialRegion={region}
-              onRegionChangeComplete={onRegionChangeComplete}
-              showsUserLocation
-              showsMyLocationButton={false}
-            />
+            {Platform.OS !== 'web' ? (
+              <MapView
+                ref={mapRef}
+                style={styles.map}
+                initialRegion={region}
+                onRegionChangeComplete={onRegionChangeComplete}
+                showsUserLocation
+                showsMyLocationButton={false}
+              />
+            ) : (
+              <View style={styles.webMapFallback}>
+                <Feather name="map" size={48} color={isDarkMode ? '#475569' : '#CBD5E1'} />
+                <Text style={[styles.webMapText, isDarkMode && { color: '#94A3B8' }]}>
+                  Map visualization only available on Mobile Devices.
+                </Text>
+              </View>
+            )}
 
             <View style={styles.searchOverlay}>
                <SoftInput 
@@ -185,7 +249,7 @@ export const MapPicker = ({ isVisible, onClose, onConfirm, initialLocation, isDa
           </View>
 
           <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
-             <View style={[styles.addressCard, isDarkMode && styles.darkAddressCard]}>
+             <SoftCard style={[styles.addressCard, isDarkMode && { backgroundColor: '#2D3748' }]}>
                 <View style={styles.addrHeader}>
                     <Feather name="navigation" size={14} color={Colors.primary} />
                     <Text style={styles.addrLabel}>DETECTED ADDRESS</Text>
@@ -197,7 +261,7 @@ export const MapPicker = ({ isVisible, onClose, onConfirm, initialLocation, isDa
                 <View style={styles.coordsRow}>
                     <Text style={styles.coordsText}>{region.latitude.toFixed(6)}, {region.longitude.toFixed(6)}</Text>
                 </View>
-             </View>
+             </SoftCard>
 
              <SoftButton 
                 title="Use This Location" 
@@ -208,7 +272,7 @@ export const MapPicker = ({ isVisible, onClose, onConfirm, initialLocation, isDa
           </View>
         </View>
       </View>
-    </Modal>
+    </View>
   );
 };
 
@@ -240,12 +304,13 @@ const styles = StyleSheet.create({
   pin: { marginBottom: 4 },
   myLocBtn: { position: 'absolute', bottom: 24, right: 24, width: 52, height: 52, borderRadius: 26, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
   footer: { padding: 24, gap: 20 },
-  addressCard: { padding: 20, backgroundColor: '#F8FAFA', borderRadius: 20, gap: 8 },
-  darkAddressCard: { backgroundColor: '#2D3748' },
-  addrHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  addressCard: { padding: 20 },
+  addrHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   addrLabel: { fontSize: 10, fontFamily: 'Inter_800ExtraBold', color: '#9CA3AF', letterSpacing: 1 },
   addressText: { fontSize: 16, fontFamily: 'Inter_700Bold', color: '#111827', lineHeight: 22 },
   coordsRow: { flexDirection: 'row', marginTop: 4 },
   coordsText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#9CA3AF' },
   darkText: { color: 'white' },
+  webMapFallback: { flex: 1, backgroundColor: '#F8FAFA', justifyContent: 'center', alignItems: 'center', padding: 40, gap: 16 },
+  webMapText: { fontSize: 18, fontFamily: 'Inter_900Black', color: '#111827', textAlign: 'center' },
 });

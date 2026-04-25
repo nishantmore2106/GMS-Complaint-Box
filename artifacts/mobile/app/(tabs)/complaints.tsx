@@ -1,4 +1,6 @@
 import { Feather } from "@expo/vector-icons";
+import { PremiumRefreshVisuals } from "@/components/PremiumRefreshVisuals";
+import Animated, { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { DashboardHeader } from "@/components/DashboardHeader";
@@ -11,7 +13,6 @@ import {
   Text,
   TextInput,
   View,
-  FlatList,
   ActivityIndicator,
   Image,
 } from "react-native";
@@ -34,6 +35,12 @@ export default function ComplaintsScreen() {
   const [activeFilter, setActiveFilter] = useState<ComplaintStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const scrollY = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const insets = useSafeAreaInsets();
@@ -41,7 +48,6 @@ export default function ComplaintsScreen() {
 
   const companyId = selectedCompanyId ?? currentUser?.companyId ?? "";
   const company = getCompanyById(companyId);
-  const unreadNotifs = notifications?.filter(n => !n.isRead).length || 0;
   const allComplaints = getCompanyComplaints(companyId);
   const role = currentUser?.role;
 
@@ -54,11 +60,10 @@ export default function ComplaintsScreen() {
   const filtered = useMemo(() => {
     let list = userComplaints;
     if (activeFilter !== "all") list = list.filter((c) => c.status === activeFilter);
-    // Note: Search is now handled server-side via refreshData/loadMoreComplaints
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [userComplaints, activeFilter]);
 
-  // 🕵️ Search Debounce Logic
+  // Search Debounce Logic
   const isInitialMount = React.useRef(true);
   React.useEffect(() => {
     if (isInitialMount.current) {
@@ -73,7 +78,7 @@ export default function ComplaintsScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       await refreshData({ search: search.trim() || undefined });
     } catch (e) {
@@ -102,7 +107,7 @@ export default function ComplaintsScreen() {
               style={[styles.addBtnStandard, isDarkMode && { backgroundColor: Colors.dark.surfaceElevated, borderColor: Colors.dark.border, borderWidth: 1 }]}
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/complaint/new"); }}
             >
-              <Feather name="plus" size={20} color={isDarkMode ? 'white' : 'white'} />
+              <Feather name="plus" size={20} color="white" />
             </Pressable>
           )
         }
@@ -129,7 +134,7 @@ export default function ComplaintsScreen() {
         </View>
 
         <View>
-          <FlatList 
+          <Animated.FlatList 
             horizontal 
             showsHorizontalScrollIndicator={false} 
             style={styles.filterScroll}
@@ -164,7 +169,11 @@ export default function ComplaintsScreen() {
 
   return (
     <View style={[styles.root, isDarkMode && { backgroundColor: Colors.dark.bg }]}>
-      <FlatList
+      <PremiumRefreshVisuals scrollY={scrollY} refreshing={refreshing} isDarkMode={isDarkMode} />
+      
+      <Animated.FlatList
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <ComplaintCard complaint={item} />}
@@ -198,9 +207,9 @@ export default function ComplaintsScreen() {
           <RefreshControl 
             refreshing={refreshing} 
             onRefresh={onRefresh} 
-            tintColor={isDarkMode ? 'white' : Colors.accent}
-            colors={[isDarkMode ? '#3B82F6' : Colors.accent]}
-            progressBackgroundColor={isDarkMode ? Colors.dark.surface : 'white'}
+            tintColor="transparent"
+            colors={["transparent"]}
+            style={{ backgroundColor: 'transparent' }}
           />
         }
       />
@@ -209,71 +218,27 @@ export default function ComplaintsScreen() {
 }
 
 const getStyles = (isDarkMode: boolean) => StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F8FAFA' },
-  headerStandard: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    justifyContent: "space-between", 
-    paddingHorizontal: 24,
-    paddingBottom: 20,
-    backgroundColor: isDarkMode ? Colors.dark.bg : '#F8FAFA',
-  },
-  headerLeft: {
-    gap: 4,
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  titleText: { fontSize: 24, fontFamily: "Inter_900Black", color: '#111827' },
-  companyPill: { backgroundColor: '#F3F4F6', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, alignSelf: 'flex-start' },
-  companyPillText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#6B7280' },
-  bellBtn: { 
-    width: 40, 
-    height: 40, 
-    borderRadius: 12, 
-    backgroundColor: 'white', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    ...Platform.select({
-      web: { boxShadow: '0 4px 10px rgba(0,0,0,0.05)' },
-      default: {
-        shadowColor: '#000', 
-        shadowOffset: { width: 0, height: 4 }, 
-        shadowOpacity: 0.05, 
-        shadowRadius: 10, 
-        elevation: 2 
-      }
-    })
-  },
-  notifBadge: { position: 'absolute', top: 10, right: 10, width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#EF4444', borderWidth: 1.5, borderColor: 'white' },
-  avatar: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, borderColor: 'white' },
-  avatarFallback: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#146A65', justifyContent: 'center', alignItems: 'center' },
-  avatarFallbackText: { color: 'white', fontSize: 14, fontFamily: 'Inter_700Bold' },
+  root: { flex: 1, backgroundColor: isDarkMode ? Colors.dark.bg : '#F8FAFA' },
   addBtnStandard: { 
-    width: 40, 
-    height: 40, 
-    borderRadius: 12, 
+    width: 44, 
+    height: 44, 
+    borderRadius: 14, 
     backgroundColor: '#111827', 
     justifyContent: 'center', 
     alignItems: 'center',
     ...Platform.select({
-      web: { boxShadow: '0 8px 12px rgba(0,0,0,0.15)' },
-      default: {
+      ios: {
         shadowColor: '#000', 
         shadowOffset: { width: 0, height: 8 }, 
         shadowOpacity: 0.15, 
         shadowRadius: 12, 
+      },
+      android: {
         elevation: 4 
       }
     })
   },
   headerSearchArea: { paddingHorizontal: 24, paddingBottom: 20, gap: 20, paddingTop: 10 },
-  header: { paddingHorizontal: 24, paddingBottom: 20, gap: 20 },
-  titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  title: { fontSize: 32, fontFamily: "Inter_900Black", color: '#111827' },
-  addBtn: { width: 44, height: 44, borderRadius: 16, backgroundColor: '#146A65', justifyContent: "center", alignItems: "center", shadowColor: '#146A65', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 6 },
   searchRow: {
     flexDirection: "row", alignItems: "center", backgroundColor: '#F0F4F4', borderRadius: 24,
     paddingHorizontal: 16, gap: 10, height: 58,
@@ -285,16 +250,16 @@ const getStyles = (isDarkMode: boolean) => StyleSheet.create({
     flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10,
     borderRadius: 32, backgroundColor: 'white', gap: 6, marginRight: 10,
     shadowColor: '#146A65', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
+    borderWidth: 1, borderColor: '#F1F5F9'
   },
   chipDot: { width: 6, height: 6, borderRadius: 3 },
   chipText: { fontSize: 14, fontFamily: "Inter_700Bold", color: '#6B7280' },
   chipTextActive: { color: 'white' },
   chipCount: { backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   chipCountText: { fontSize: 11, fontFamily: "Inter_800ExtraBold", color: '#6B7280' },
-  scroll: { flex: 1 },
   list: { paddingHorizontal: 24, paddingTop: 10, gap: 16 },
   empty: { alignItems: "center", paddingVertical: 80, gap: 16 },
-  emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'white', justifyContent: "center", alignItems: "center", shadowColor: '#146A65', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10 },
-  emptyTitle: { fontSize: 20, fontFamily: "Inter_900Black", color: '#111827' },
-  emptyText: { fontSize: 14, fontFamily: "Inter_500Medium", color: '#6B7280', textAlign: "center", maxWidth: 260, lineHeight: 22 },
+  emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: isDarkMode ? Colors.dark.surface : 'white', justifyContent: "center", alignItems: "center", shadowColor: '#146A65', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10, borderWidth: isDarkMode ? 1 : 0, borderColor: Colors.dark.borderStrong },
+  emptyTitle: { fontSize: 20, fontFamily: "Inter_900Black", color: isDarkMode ? Colors.dark.text : '#111827' },
+  emptyText: { fontSize: 14, fontFamily: "Inter_500Medium", color: isDarkMode ? Colors.dark.textSub : '#6B7280', textAlign: "center", maxWidth: 260, lineHeight: 22 },
 });

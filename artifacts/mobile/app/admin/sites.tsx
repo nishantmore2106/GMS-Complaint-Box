@@ -13,7 +13,8 @@ import {
   Modal,
   ScrollView,
   Alert,
-  Image
+  Image,
+  InteractionManager
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
@@ -46,7 +47,6 @@ export default function SitesManagementScreen() {
   
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
-  const unreadNotifs = notifications.filter(n => !n.isRead).length;
   
   const [search, setSearch] = useState("");
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
@@ -79,11 +79,15 @@ export default function SitesManagementScreen() {
   // 🕵️ Search Debounce Logic
   React.useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
-      refreshData(); 
-    }, 500);
+      // 🛡️ GSD Optimization: Using loadMore(search) instead of full refreshData()
+      // to reduce bridge traffic during typing.
+      if (search.trim().length > 0) {
+        loadMoreSites({ search: search.trim(), companyId });
+      }
+    }, 1000); // Increased debounce to 1s
 
     return () => clearTimeout(delayDebounceFn);
-  }, [search, refreshData]);
+  }, [search]); 
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -112,8 +116,8 @@ export default function SitesManagementScreen() {
   };
 
   const onLocationPicked = (data: { latitude: number; longitude: number; address: string }) => {
-    setNewLat(String(data.latitude));
-    setNewLong(String(data.longitude));
+    setNewLat(String(data.latitude.toFixed(6)));
+    setNewLong(String(data.longitude.toFixed(6)));
     setNewLocation(data.address);
     if (!newName && data.address) {
       setNewName(data.address.split(',')[0]);
@@ -122,18 +126,34 @@ export default function SitesManagementScreen() {
 
   const handleMarkCurrentLocation = async () => {
     setIsSubmitting(true);
+    showToast("Locking coordinates...", "info");
+    
     try {
+      // 🛡️ GSD Optimization: Offload GPS task to avoid thread blockage
+      await new Promise(resolve => InteractionManager.runAfterInteractions(() => resolve(true)));
+
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert("Permission Refused", "GPS access is required to mark site location.");
+        setIsSubmitting(false);
         return;
       }
 
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      // 🛡️ GSD WATCHDOG: 6s Timeout for GPS
+      const locationPromise = Location.getCurrentPositionAsync({ 
+        accuracy: Location.Accuracy.Balanced 
+      });
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("GPS_TIMEOUT")), 6000)
+      );
+
+      console.log("[Admin/Sites] Requesting GPS lock (6s watchdog active)");
+      const location = await Promise.race([locationPromise, timeoutPromise]) as Location.LocationObject;
       const { latitude, longitude } = location.coords;
       
-      setNewLat(String(latitude));
-      setNewLong(String(longitude));
+      setNewLat(String(latitude.toFixed(6)));
+      setNewLong(String(longitude.toFixed(6)));
       
       const [addr] = await Location.reverseGeocodeAsync({ latitude, longitude });
       if (addr) {
@@ -141,11 +161,17 @@ export default function SitesManagementScreen() {
         setNewLocation(fullAddr);
         if (!newName) setNewName(addr.name || addr.street || "New Facility");
       }
+      showToast("Location captured successfully!", "success");
       
       showToast("Location updated from GPS!", "success");
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (err: any) {
-      Alert.alert("GPS Error", err.message || "Failed to fetch GPS coordinates.");
+      console.warn("[Admin/Sites] GPS Lock Warning:", err.message);
+      if (err.message === "GPS_TIMEOUT") {
+        Alert.alert("GPS Timeout", "Taking too long to get a lock. Please pick from map instead.");
+      } else {
+        Alert.alert("GPS Error", err.message || "Failed to fetch GPS coordinates.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -238,8 +264,8 @@ export default function SitesManagementScreen() {
     const avgTime = sc.length > 0 ? `${Math.max(2, 24 - (resolved.length * 2))}h` : '-';
 
     return (
-      <Pressable 
-        style={[styles.siteCard, isDarkMode && { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border }]}
+      <SoftCard 
+        style={styles.siteCard}
         onPress={() => router.push(`/admin/site/${s.id}`)}
       >
         <View style={styles.siteHeaderRow}>
@@ -250,7 +276,7 @@ export default function SitesManagementScreen() {
               <Text style={[styles.siteAddress, isDarkMode && { color: Colors.dark.textSub }]} numberOfLines={1}>{s.address || "Location pending"}</Text>
             </View>
           </View>
-          <View style={[styles.healthBadge, { backgroundColor: isDarkMode ? (statusTheme.label === 'Good' ? 'rgba(16,185,129,0.1)' : statusTheme.label === 'Critical' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)') : statusTheme.bg }]}>
+          <View style={[styles.healthBadge, { backgroundColor: isDarkMode ? (statusTheme.label === 'Good' ? 'rgba(16,185,129,0.1)' : statusTheme.label === 'Critical' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)') : statusTheme.bg, borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', borderWidth: 1 }]}>
              <View style={[styles.healthDot, { backgroundColor: isDarkMode ? (statusTheme.label === 'Good' ? '#10B981' : statusTheme.label === 'Critical' ? '#EF4444' : '#F59E0B') : statusTheme.color }]} />
              <Text style={[styles.healthText, { color: isDarkMode ? (statusTheme.label === 'Good' ? '#10B981' : statusTheme.label === 'Critical' ? '#EF4444' : '#F59E0B') : statusTheme.color }]}>{statusTheme.label}</Text>
           </View>
@@ -288,7 +314,29 @@ export default function SitesManagementScreen() {
               </View>
            </View>
         </View>
-      </Pressable>
+
+         {/* GSD Phase 5: UAT Lab (Simulator) */}
+         <View style={[styles.uatLab, isDarkMode && { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.05)' }]}>
+            <View style={styles.uatHeader}>
+               <Feather name="shield" size={10} color={isDarkMode ? Colors.dark.textMuted : "#94A3B8"} />
+               <Text style={styles.uatLabel}>UAT LAB · SIMULATOR</Text>
+            </View>
+            <View style={styles.uatActions}>
+               <Pressable 
+                  style={({ pressed }) => [styles.simBtn, pressed && { opacity: 0.7 }]}
+                  onPress={() => {
+                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                     router.push(`/public/scan/${s.id}?test=true`);
+                  }}
+               >
+                  <View style={styles.simGradient}>
+                    <Feather name="zap" size={14} color="#F59E0B" />
+                    <Text style={styles.simText}>Simulate Public Scan</Text>
+                  </View>
+               </Pressable>
+            </View>
+         </View>
+      </SoftCard>
     );
   };
 
@@ -509,7 +557,7 @@ export default function SitesManagementScreen() {
                       <View>
                         <Text style={[styles.photoPickerTitle, isDarkMode && { color: 'white' }]}>Client Profile Photo</Text>
                         <Text style={[styles.photoPickerSub, isDarkMode && { color: Colors.dark.textMuted }]}>Required for identification</Text>
-                      </View>
+                       </View>
                     </View>
                     
                     <View style={{ height: 10 }} />
@@ -544,17 +592,18 @@ export default function SitesManagementScreen() {
                        style={styles.modalFooterBtn}
                     />
                  </View>
-              </View>
-           </View>
-        </Modal>
-      </View>
 
-      <MapPicker 
-        isVisible={isMapVisible}
-        onClose={() => setIsMapVisible(false)}
-        onConfirm={onLocationPicked}
-        isDarkMode={isDarkMode}
-      />
+               </View>
+               <MapPicker 
+                  isVisible={isMapVisible}
+                  onClose={() => setIsMapVisible(false)}
+                  onConfirm={onLocationPicked}
+                  isDarkMode={isDarkMode}
+               />
+            </View>
+         </Modal>
+
+      </View>
     </>
   );
 }
@@ -604,7 +653,7 @@ const styles = StyleSheet.create({
   searchBox: { paddingHorizontal: 24, paddingBottom: 16 },
   list: { padding: 24, gap: 20, paddingBottom: 120 },
   
-  siteCard: { padding: 24, gap: 16, borderRadius: 32, backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.04, shadowRadius: 30, elevation: 3 },
+  siteCard: { padding: 24, gap: 16 },
   siteHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   titleArea: { flex: 1, gap: 6, paddingRight: 16 },
   siteName: { fontSize: 18, fontFamily: "Inter_900Black", color: '#111827' },
@@ -634,13 +683,38 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#F9FAFB', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#E5E7EB', borderStyle: 'dashed' },
   emptyText: { fontSize: 16, fontFamily: "Inter_800ExtraBold", color: '#9CA3AF' },
   
+  uatLab: { marginTop: 12, padding: 16, borderRadius: 20, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#F1F5F9', gap: 12 },
+  uatHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  uatLabel: { fontSize: 10, fontFamily: 'Inter_900Black', color: '#94A3B8', letterSpacing: 0.5 },
+  uatActions: { flexDirection: 'row' },
+  simBtn: { flex: 1, height: 44, borderRadius: 12, overflow: 'hidden' },
+  simGradient: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#111827' },
+  simText: { color: 'white', fontSize: 13, fontFamily: 'Inter_700Bold' },
+
   // Modal Styles
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(17,24,39,0.4)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: Colors.bg, borderTopLeftRadius: 40, borderTopRightRadius: 40, padding: 32, paddingBottom: 48, maxHeight: '90%', borderTopWidth: 1, borderColor: '#E5E7EB' },
+  modalOverlay: { 
+    flex: 1, 
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(11,18,39,0.4)', 
+    justifyContent: 'flex-end',
+    position: 'relative', // 🛡️ GSD: Anchors absolute children (MapPicker)
+  },
+  modalContent: { 
+    backgroundColor: Colors.bg, 
+    borderTopLeftRadius: 40, 
+    borderTopRightRadius: 40, 
+    padding: 32, 
+    paddingBottom: Platform.OS === 'ios' ? 60 : 48, 
+    maxHeight: '94%', // Increased slightly for iOS
+    borderTopWidth: 1, 
+    borderColor: '#E5E7EB',
+    width: '100%'
+  },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   modalTitle: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#111827' },
   closeBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
-  modalForm: { gap: 20 },
+  modalForm: { gap: 20, flexGrow: 1 },
   inviteSection: { marginTop: 12, gap: 12, backgroundColor: 'white', padding: 20, borderRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.02, shadowRadius: 20, elevation: 2 },
   sectionHeading: { fontSize: 11, fontFamily: 'Inter_800ExtraBold', color: '#9CA3AF', letterSpacing: 1 },
   inviteHint: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6B7280', lineHeight: 20 },

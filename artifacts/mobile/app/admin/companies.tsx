@@ -19,6 +19,7 @@ export default function CompaniesScreen() {
     isDarkMode, 
     deleteCompany 
   } = useApp();
+  const { SoftCard } = require("@/components/SoftCard");
   const insets = useSafeAreaInsets();
   const [isDeleting, setIsDeleting] = React.useState<string | null>(null);
   const unreadNotifs = notifications.filter(n => !n.isRead).length;
@@ -47,7 +48,7 @@ export default function CompaniesScreen() {
             const staffCount = getCompanyUsers(c.id).length;
 
             return (
-              <View key={c.id} style={[styles.card, isDarkMode && styles.darkCard]}>
+              <SoftCard key={c.id} style={styles.card}>
                 <View style={styles.cardHeader}>
                   <View style={styles.companyIcon}>
                     <Feather name="briefcase" size={20} color={Colors.primary} />
@@ -110,7 +111,7 @@ export default function CompaniesScreen() {
                     <Feather name="external-link" size={14} color={Colors.primary} />
                   </Pressable>
                 </View>
-              </View>
+              </SoftCard>
             );
           })
         )}
@@ -153,8 +154,7 @@ const styles = StyleSheet.create({
   avatarFallbackText: { color: 'white', fontSize: 16, fontFamily: 'Inter_700Bold' },
   addBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#111827', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 4 },
   scroll: { padding: 32, gap: 24 },
-  card: { backgroundColor: 'white', borderRadius: 32, padding: 24, gap: 24, shadowColor: '#146A65', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.05, shadowRadius: 24, elevation: 6 },
-  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border },
+  card: { padding: 24, gap: 24 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   companyIcon: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#A4F0E940', justifyContent: 'center', alignItems: 'center' },
   companyInfo: { flex: 1 },

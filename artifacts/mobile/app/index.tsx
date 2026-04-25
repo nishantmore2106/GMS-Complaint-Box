@@ -5,6 +5,10 @@ import { useLocalSearchParams, router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, { FadeIn, SlideInRight, SlideOutLeft, Layout } from "react-native-reanimated";
 import React, { useState, useRef, useEffect } from "react";
+import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { APP_CONFIG } from "@/constants/config";
+import { LocationService } from "@/services/location.service";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -30,18 +34,7 @@ import { NotificationManager } from "@/services/notification.manager";
 
 const { width } = Dimensions.get('window');
 
-function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371e3; // meters
-  const φ1 = lat1 * Math.PI / 180;
-  const φ2 = lat2 * Math.PI / 180;
-  const Δφ = (lat2 - lat1) * Math.PI / 180;
-  const Δλ = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) *
-    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+// Removed duplicate getDistance - using LocationService
 
 export default function RootEntry() {
   const { isDarkMode, isAuthLoading } = useApp();
@@ -74,12 +67,42 @@ export default function RootEntry() {
   const [category, setCategory] = useState<"Cleaning" | "Misbehave">("Cleaning");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [image, setImage] = useState<string | null>(null);
+  const [activeComplaintId, setActiveComplaintId] = useState<string | null>(null);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
       autoDetectSite();
+      checkActiveSession();
     }
   }, []);
+
+  const checkActiveSession = async () => {
+    try {
+      const savedId = await AsyncStorage.getItem(APP_CONFIG.AUTH.SESSION_RECOVERY_KEY);
+      if (savedId) {
+        // Verify if it's still active
+        const { data } = await supabase.from('complaints').select('status').eq('id', savedId).single();
+        if (data && data.status !== 'resolved') {
+          setActiveComplaintId(savedId);
+        } else {
+          await AsyncStorage.removeItem(APP_CONFIG.AUTH.SESSION_RECOVERY_KEY);
+        }
+      }
+    } catch (e) {}
+  };
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.7,
+    });
+
+    if (!result.canceled) {
+      setImage(result.assets[0].uri);
+    }
+  };
 
   const autoDetectSite = async (isTestMode = false) => {
     setLocating(true);
@@ -114,8 +137,11 @@ export default function RootEntry() {
         closest = sites?.[0] || null;
       } else {
         for (const s of (sites || [])) {
-          const dist = getDistance(latitude, longitude, s.latitude, s.longitude);
-          const radius = s.radius_meters || 500;
+          const dist = LocationService.getDistance(
+            { latitude, longitude }, 
+            { latitude: s.latitude, longitude: s.longitude }
+          );
+          const radius = s.radius_meters || APP_CONFIG.GEOFENCE.DEFAULT_RADIUS;
           if (dist <= radius && dist < minDistance) {
             minDistance = dist;
             closest = s;
@@ -158,16 +184,26 @@ export default function RootEntry() {
         console.warn("[WebSubmit] Haptics not supported or blocked:", hapticErr);
       }
       
-      console.log("[WebSubmit] Payload:", {
-        site_id: detectedSite.id,
-        company_id: detectedSite.company_id,
-        client_id: detectedSite.client_id,
-        supervisor_id: detectedSite.assigned_supervisor_id,
-        category: category,
-        description: description
-      });
+      let imageUrl = null;
+      if (image) {
+        console.log("[WebSubmit] Uploading image...");
+        const fileName = `public/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        const response = await fetch(image);
+        const blob = await response.blob();
+        
+        const { data, error: uploadErr } = await supabase.storage
+          .from(APP_CONFIG.STORAGE.BUCKET_NAME)
+          .upload(fileName, blob);
+          
+        if (uploadErr) throw uploadErr;
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from(APP_CONFIG.STORAGE.BUCKET_NAME)
+          .getPublicUrl(data.path);
+        imageUrl = publicUrl;
+      }
 
-      const { error } = await supabase.from('complaints').insert([{
+      const { data: newComplaint, error } = await supabase.from('complaints').insert([{
         site_id: detectedSite.id,
         company_id: detectedSite.company_id,
         client_id: detectedSite.client_id,
@@ -180,23 +216,22 @@ export default function RootEntry() {
         floor: floor,
         room_number: room,
         status: 'pending',
-        priority: 'medium'
-      }]);
+        priority: 'medium',
+        before_media_url: imageUrl
+      }]).select().single();
 
-      if (error) {
-        console.error("[WebWebSubmit] Supabase Error Details:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
-        throw error;
+      if (error) throw error;
+      
+      if (newComplaint) {
+        await AsyncStorage.setItem(APP_CONFIG.AUTH.SESSION_RECOVERY_KEY, newComplaint.id);
+        setActiveComplaintId(newComplaint.id);
       }
+
       console.log("[WebSubmit] Success!");
       
       try {
         await NotificationManager.notifyNewComplaint({
-          id: detectedSite.id + '_web_' + Date.now(),
+          id: newComplaint?.id || (detectedSite.id + '_web_' + Date.now()),
           company_id: detectedSite.company_id,
           site_id: detectedSite.id,
           priority: 'medium',
@@ -206,10 +241,12 @@ export default function RootEntry() {
       } catch (e) {}
 
       setSubmitted(true);
-      setStep(1); // Reset for next time
+      setStep(1); 
+      setImage(null);
       try {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {}
+
     } catch (err: any) {
       console.error("[WebSubmit] Catch Error:", err);
       Alert.alert("Error", err.message || "Failed to submit.");
@@ -247,6 +284,15 @@ export default function RootEntry() {
                <Feather name="box" size={24} color="#1E3A8A" />
             </View>
             <Text style={styles.webTitle}>GMS Public Portal</Text>
+            {activeComplaintId && (
+              <Pressable 
+                onPress={() => router.push(`/public/scan/${activeComplaintId}`)}
+                style={styles.trackerBadge}
+              >
+                <Feather name="activity" size={14} color="white" />
+                <Text style={styles.trackerBadgeText}>View Active Tracker</Text>
+              </Pressable>
+            )}
           </View>
 
           {locating ? (
@@ -369,6 +415,18 @@ export default function RootEntry() {
                          multiline
                          style={styles.textArea}
                        />
+
+                       <Text style={[styles.sectionLabel, { marginTop: 20 }]}>ATTACH PHOTO</Text>
+                       <Pressable onPress={pickImage} style={styles.imagePickerBtn}>
+                          {image ? (
+                            <Animated.Image entering={FadeIn} source={{ uri: image }} style={styles.previewImage} />
+                          ) : (
+                            <View style={styles.pickerPlaceholder}>
+                              <Feather name="camera" size={24} color="#1E3A8A" />
+                              <Text style={styles.pickerText}>Take or Upload Photo</Text>
+                            </View>
+                          )}
+                       </Pressable>
                      </View>
 
                      <View style={styles.buttonRow}>
@@ -538,5 +596,47 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: '#1E3A8A', borderRadius: 3 },
   progressText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#94A3B8', textAlign: 'right' },
   stepContainer: { width: '100%' },
-  webFooter: { marginTop: 60, alignItems: 'center' }
+  webFooter: { marginTop: 60, alignItems: 'center' },
+  imagePickerBtn: {
+    width: '100%',
+    height: 160,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    overflow: 'hidden',
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerPlaceholder: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  pickerText: {
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#64748B',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  trackerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#1E3A8A',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginLeft: 12,
+  },
+  trackerBadgeText: {
+    fontSize: 12,
+    fontFamily: 'Inter_700Bold',
+    color: 'white',
+  },
 });
+

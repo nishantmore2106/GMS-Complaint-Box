@@ -1,5 +1,7 @@
-import { Text, StyleSheet, Pressable, ViewStyle, TextStyle, ActivityIndicator, StyleProp } from 'react-native';
+import React, { useRef } from 'react';
+import { Text, StyleSheet, Pressable, ViewStyle, TextStyle, ActivityIndicator, StyleProp, Animated, Platform } from 'react-native';
 import { Colors } from '../constants/colors';
+import { HapticsService } from '../utils/haptics';
 
 interface SoftButtonProps {
   title: string;
@@ -10,6 +12,7 @@ interface SoftButtonProps {
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
   isDarkMode?: boolean;
+  activeScale?: number;
 }
 
 export const SoftButton = ({ 
@@ -21,17 +24,39 @@ export const SoftButton = ({
   style,
   textStyle,
   isDarkMode = false,
+  activeScale = 0.96,
 }: SoftButtonProps) => {
   const isPrimary = variant === 'primary';
   const isOutline = variant === 'outline';
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    HapticsService.impact('light');
+    Animated.spring(scaleAnim, {
+      toValue: activeScale,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 10,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 10,
+    }).start();
+  };
 
   const Content = () => (
     <>
       {loading ? (
-        <ActivityIndicator color={isPrimary ? '#0F172A' : (isDarkMode ? 'white' : '#111827')} size="small" />
+        <ActivityIndicator color={isPrimary ? '#FFFFFF' : (isDarkMode ? 'white' : '#111827')} size="small" />
       ) : (
         <Text style={[
           styles.text, 
+          isPrimary && { color: '#FFFFFF' },
           !isPrimary && { color: isDarkMode ? 'white' : '#475569' },
           textStyle
         ]}>
@@ -41,69 +66,63 @@ export const SoftButton = ({
     </>
   );
 
-  if (isPrimary) {
-    return (
-      <Pressable 
-        onPress={onPress} 
-        disabled={disabled || loading}
-        style={({ pressed }) => [
+  return (
+    <Pressable 
+      onPress={onPress} 
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        Platform.OS === 'web' && { cursor: (disabled || loading) ? 'default' : 'pointer' } as any
+      ]}
+    >
+      <Animated.View 
+        style={[
           styles.button,
-          styles.primaryButton,
-          { opacity: (disabled || loading) ? 0.6 : (pressed ? 0.95 : 1) },
-          styles.shadow,
+          isPrimary && styles.primaryButton,
+          !isPrimary && !isOutline && { backgroundColor: isDarkMode ? '#1E293B' : '#F8FAFC', borderColor: 'rgba(20, 106, 101, 0.1)', borderWidth: 1 },
+          isOutline && { 
+            borderWidth: 1.5, 
+            borderColor: isDarkMode ? '#334155' : 'rgba(20, 106, 101, 0.2)', 
+            backgroundColor: isDarkMode ? 'transparent' : '#FFFFFF' 
+          },
+          { transform: [{ scale: scaleAnim }] },
+          { opacity: (disabled || loading) ? 0.6 : 1 },
+          isPrimary && styles.shadow,
           style
         ]}
       >
         <Content />
-      </Pressable>
-    );
-  }
-
-  return (
-    <Pressable 
-      onPress={onPress} 
-      disabled={disabled || loading}
-      style={({ pressed }) => [
-        styles.button,
-        !isOutline && { backgroundColor: isDarkMode ? '#1E293B' : '#F8FAFC', borderColor: '#E2E8F0', borderWidth: 1 },
-        isOutline && { 
-          borderWidth: 1, 
-          borderColor: isDarkMode ? '#334155' : '#CBD5E1', 
-          backgroundColor: isDarkMode ? 'transparent' : '#FFFFFF' 
-        },
-        { opacity: (disabled || loading) ? 0.6 : (pressed ? 0.9 : 1) },
-        style
-      ]}
-    >
-      <Content />
+      </Animated.View>
     </Pressable>
   );
 };
 
 const styles = StyleSheet.create({
   button: {
-    height: 52,
-    borderRadius: 12, // Professional rounded rectangle
+    height: 60,
+    borderRadius: 100, // Modern pill shape
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
+    paddingHorizontal: 24,
   },
   primaryButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#111827',
     borderWidth: 1,
-    borderColor: '#0F172A',
+    borderColor: '#111827',
   },
   text: {
     color: '#0F172A',
-    fontSize: 15,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 16,
+    fontFamily: 'Inter_800ExtraBold',
     letterSpacing: -0.2,
   },
   shadow: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: '#146A65',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
   }
 });

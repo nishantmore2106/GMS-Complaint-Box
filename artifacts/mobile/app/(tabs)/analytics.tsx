@@ -18,8 +18,12 @@ import { useApp } from "@/context/AppContext";
 import Svg, { G, Rect, Text as SvgText, Circle } from "react-native-svg";
 import { SoftCard } from "@/components/SoftCard";
 
+import { PremiumRefreshVisuals } from "@/components/PremiumRefreshVisuals";
+import Animated, { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
+import { RefreshControl } from "react-native";
+
 export default function AnalyticsScreen() {
-  const { currentUser, selectedCompanyId, getCompanyComplaints, getCompanySites, getCompanyById, isDarkMode, notifications, profileImage } = useApp();
+  const { currentUser, selectedCompanyId, getCompanyComplaints, getCompanySites, getCompanyById, isDarkMode, notifications, profileImage, refreshData } = useApp();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isDark = isDarkMode;
@@ -27,6 +31,21 @@ export default function AnalyticsScreen() {
   const styles = useMemo(() => getStyles(isDark, width), [isDark, width]);
 
   const [dateFilter, setDateFilter] = useState<'Today' | 'Week' | 'Month'>('Month');
+  const [refreshing, setRefreshing] = useState(false);
+  const scrollY = useSharedValue(0);
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await refreshData();
+    setRefreshing(false);
+  };
 
   const companyId = selectedCompanyId ?? currentUser?.companyId ?? "";
   const role = currentUser?.role;
@@ -195,12 +214,24 @@ export default function AnalyticsScreen() {
 
   return (
     <View style={[styles.root, isDark && { backgroundColor: Colors.dark.bg }]}>
-      <ScrollView
+      <PremiumRefreshVisuals scrollY={scrollY} refreshing={refreshing} isDarkMode={isDark} />
+      
+      <Animated.ScrollView
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scroll,
           { paddingBottom: 120 },
         ]}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor="transparent"
+            colors={["transparent"]}
+          />
+        }
       >
         <DashboardHeader 
           title={role === 'client' ? "My Statistics" : "My Performance"}
@@ -419,7 +450,7 @@ export default function AnalyticsScreen() {
           </View>
         </View>
 
-      </ScrollView>
+      </Animated.ScrollView>
     </View>
   );
 }

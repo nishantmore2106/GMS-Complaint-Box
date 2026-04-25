@@ -6,7 +6,7 @@ const SAFE_COMPLAINT_COLUMNS = "id,company_id,site_id,client_id,supervisor_id,st
 
 export const ApiService = {
   // --- HELPERS ---
-  async fetchWithTimeout(promise: Promise<any>, label: string = "unknown", timeoutMs: number = 10000) {
+  async fetchWithTimeout(promise: Promise<any>, label: string = "unknown", timeoutMs: number = 8000) {
     let timeoutId: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise((resolve) => {
       timeoutId = setTimeout(() => {
@@ -45,17 +45,21 @@ export const ApiService = {
   },
 
   // --- AUTH & PROFILE ---
-  async fetchUserProfile(supabaseId: string) {
+  async fetchUserProfile(supabaseId: string, retryCount: number = 0) {
     const query = supabase
       .from("users")
       .select("*")
       .eq("supabase_id", supabaseId)
       .maybeSingle();
       
-    const { data, error } = await this.fetchWithTimeout(Promise.resolve(query), "user_profile", 15000);
+    const { data, error } = await this.fetchWithTimeout(Promise.resolve(query), "user_profile", 20000);
 
     if (error?.message === "timeout") {
-       console.error("[ApiService] fetchUserProfile: TIMEOUT (V2) - Throwing to AppContext");
+       if (retryCount < 1) {
+         console.warn(`[ApiService] fetchUserProfile: Timeout hit. Retrying (Attempt ${retryCount + 1})...`);
+         return this.fetchUserProfile(supabaseId, retryCount + 1);
+       }
+       console.error("[ApiService] fetchUserProfile: TIMEOUT (V2) - Throwing after retry");
        throw new Error("TIMEOUT");
     }
     if (error) throw error;
@@ -69,7 +73,7 @@ export const ApiService = {
       .eq("email", email.toLowerCase())
       .maybeSingle();
 
-    const { data, error } = await this.fetchWithTimeout(Promise.resolve(query), "user_profile_email");
+    const { data, error } = await this.fetchWithTimeout(Promise.resolve(query), "user_profile_email", 15000);
     if (error && error.message !== "timeout") throw error;
     return data;
   },
@@ -107,11 +111,17 @@ export const ApiService = {
     // 🛡️ ROLE-BASED ISOLATION (Defense in Depth)
     if (role === 'client' && userId) {
       console.log("[ApiService] Applying Client-level isolation filters...");
-      // 1. Get IDs of sites belonging to this client
-      const { data: clientSites } = await supabase.from("sites").select("id").eq("client_id", userId);
-      const siteIds = clientSites?.map(s => s.id) || [];
       
-      // 2. Filter complaints and sites by these IDs
+      // 1. Get IDs of sites belonging to this client strictly via client_id link
+      const { data: clientSites } = await supabase
+        .from("sites")
+        .select("id")
+        .eq("client_id", userId);
+        
+      const siteIds = clientSites?.map(s => s.id) || [];
+      console.log("[ApiService] Client constrained to assigned sites:", siteIds);
+
+      // 2. Filter complaints and sites by these verified IDs
       compQueryBuilder = compQueryBuilder.in("site_id", siteIds);
       siteQueryBuilder = siteQueryBuilder.in("id", siteIds);
     }
@@ -147,24 +157,31 @@ export const ApiService = {
       let metricsQueryBuilder = supabase.from("site_metrics").select("*").eq("company_id", companyId);
       let usersQueryBuilder = supabase.from("users").select("*").eq("company_id", companyId).neq("status", "deleted").limit(100);
       let supMetricsQueryBuilder = supabase.from("supervisor_metrics").select("*").eq("company_id", companyId);
+      let supReqQueryBuilder = supabase.from("supervisor_requests").select("*").eq("company_id", companyId).order("created_at", { ascending: false });
 
-      if (role === 'client') {
-        const [usersRes] = await Promise.all([
-          this.fetchWithTimeout(Promise.resolve(usersQueryBuilder), "users_limited_client")
-        ]);
-        // Clients shouldn't see metrics or logs for other users/sites, but they DO need user names for supervisors
-        return [siteRes, compRes, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, usersRes];
+      if (role === 'client' && userId) {
+        supReqQueryBuilder = supReqQueryBuilder.eq("client_id", userId);
       }
 
-      const metricsQuery = this.fetchWithTimeout(Promise.resolve(metricsQueryBuilder), "metrics");
-      const supMetricsQuery = this.fetchWithTimeout(Promise.resolve(supMetricsQueryBuilder), "sup_metrics");
-      const usersQuery = this.fetchWithTimeout(Promise.resolve(usersQueryBuilder), "users_all");
-
-      const [metricsRes, supMetricsRes, usersRes] = await Promise.all([
-        metricsQuery, supMetricsQuery, usersQuery
+      const [metricsRes, supMetricsRes, usersRes, supReqRes, notifRes] = await Promise.all([
+        role === 'client' ? Promise.resolve({ data: [], error: null }) : this.fetchWithTimeout(Promise.resolve(metricsQueryBuilder), "metrics"),
+        role === 'client' ? Promise.resolve({ data: [], error: null }) : this.fetchWithTimeout(Promise.resolve(supMetricsQueryBuilder), "sup_metrics"),
+        this.fetchWithTimeout(Promise.resolve(usersQueryBuilder), role === 'client' ? "users_limited_client" : "users_all"),
+        this.fetchWithTimeout(Promise.resolve(supReqQueryBuilder), "supervisor_requests"),
+        this.fetchNotifications(userId as string)
       ]);
 
-      return [siteRes, compRes, metricsRes, { data: [], error: null }, supMetricsRes, usersRes];
+      // 🔒 PRIVACY: Redact sensitive staff info for Clients
+      if (role === 'client' && usersRes.data) {
+        usersRes.data = usersRes.data.map((u: any) => {
+           if (u.role === 'supervisor' || u.role === 'founder') {
+             return { ...u, phone: "REDACTED", email: "REDACTED" };
+           }
+           return u;
+        });
+      }
+
+      return [siteRes, compRes, metricsRes, notifRes, supMetricsRes, usersRes, supReqRes];
     } catch (err) {
       console.error("[ApiService] fetchAllData CRITICAL error:", err);
       throw err;
@@ -350,5 +367,17 @@ export const ApiService = {
       throw error;
     }
     console.log("[ApiService] deleteCompany: PURGE SUCCESS");
+  },
+
+  // --- SUPERVISOR REQUESTS ---
+  async createSupervisorRequest(request: any) {
+    const { data, error } = await supabase.from("supervisor_requests").insert([request]).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  async updateSupervisorRequest(id: string, updates: any) {
+    const { error } = await supabase.from("supervisor_requests").update(updates).eq("id", id);
+    if (error) throw error;
   }
 };

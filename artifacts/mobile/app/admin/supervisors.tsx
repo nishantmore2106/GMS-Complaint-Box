@@ -200,14 +200,14 @@ export default function SupervisorAdminScreen() {
     const solved = complaints.filter(c => c.supervisorId === sup.id && c.status === 'resolved');
     
     return (
-      <SoftCard key={sup.id} style={[styles.supCard, isDarkMode && { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border }]}>
+      <SoftCard key={sup.id} style={styles.supCard}>
         <View style={styles.cardInfo}>
           <View style={styles.nameRow}>
               <Text style={[styles.supName, isDarkMode && { color: 'white' }]}>{sup.name}</Text>
               <View style={[styles.idBadge, isDarkMode && { backgroundColor: 'rgba(20,106,101,0.2)' }]}>
                 <Text style={styles.idText}>{sup.displayId}</Text>
               </View>
-              <View style={[styles.idBadge, { backgroundColor: sup.role === 'founder' ? '#FEF9C3' : (sup.role === 'supervisor' ? '#E0E7FF' : '#F0F4F4') }, isDarkMode && { backgroundColor: sup.role === 'founder' ? 'rgba(253,224,71,0.2)' : (sup.role === 'supervisor' ? 'rgba(99,102,241,0.2)' : 'rgba(20,106,101,0.2)') }]}>
+              <View style={[styles.roleBadge, { backgroundColor: sup.role === 'founder' ? 'rgba(253,224,71,0.1)' : (sup.role === 'supervisor' ? 'rgba(99,102,241,0.1)' : 'rgba(20,106,101,0.1)'), borderColor: sup.role === 'founder' ? '#FDE047' : (sup.role === 'supervisor' ? '#818CF8' : '#146A65') }]}>
                 <Text style={[styles.idText, { color: sup.role === 'founder' ? '#A16207' : (sup.role === 'supervisor' ? '#4338CA' : '#146A65') }, isDarkMode && { color: sup.role === 'founder' ? '#FDE047' : (sup.role === 'supervisor' ? '#818CF8' : '#146A65') }]}>{sup.role.toUpperCase()}</Text>
               </View>
           </View>
@@ -229,14 +229,14 @@ export default function SupervisorAdminScreen() {
         
         <View style={styles.actions}>
           <Pressable style={[styles.editBtn, isDarkMode && { backgroundColor: 'rgba(59,130,246,0.1)' }]} onPress={() => handleEdit(sup)}>
-            <Feather name="edit-3" size={18} color={isDarkMode ? '#60A5FA' : Colors.primary} />
+            <Feather name="edit-3" size={18} color={isDarkMode ? '#60A5FA' : Colors.inProgress} />
           </Pressable>
           <Pressable 
             style={[styles.deleteBtn, isDarkMode && { backgroundColor: 'rgba(239,68,68,0.1)' }]} 
             onPress={() => handleDelete(sup)}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Feather name="trash-2" size={18} color={isDarkMode ? '#F87171' : Colors.pending} />
+            <Feather name="trash-2" size={18} color="#EF4444" />
           </Pressable>
         </View>
       </SoftCard>
@@ -456,12 +456,13 @@ const styles = StyleSheet.create({
   cardInfo: { flex: 1, gap: 6 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   supName: { fontSize: 18, fontFamily: "Inter_900Black", color: '#111827' },
-  idBadge: { backgroundColor: '#F0F4F4', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  idText: { fontSize: 11, fontFamily: 'Inter_800ExtraBold', color: '#146A65', letterSpacing: 0.5 },
-  supPhone: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#6B7280' },
-  metricsRow: { flexDirection: "row", gap: 12, marginTop: 8, borderTopWidth: 1.5, borderTopColor: '#F0F4F4', paddingTop: 16 },
-  metric: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
-  metricText: { fontSize: 12, fontFamily: "Inter_800ExtraBold" },
+  idBadge: { backgroundColor: 'rgba(20,106,101,0.05)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(20,106,101,0.1)' },
+  roleBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
+  idText: { fontSize: 10, fontFamily: 'Inter_800ExtraBold', color: '#146A65', letterSpacing: 0.5 },
+  supPhone: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#94A3B8' },
+  metricsRow: { flexDirection: "row", gap: 12, marginTop: 8, borderTopWidth: 1.5, borderTopColor: '#F8FAFA', paddingTop: 16 },
+  metric: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: 'transparent' },
+  metricText: { fontSize: 11, fontFamily: "Inter_800ExtraBold" },
   actions: { flexDirection: "row", gap: 12 },
   editBtn: { width: 44, height: 44, borderRadius: 16, backgroundColor: '#A4F0E920', justifyContent: 'center', alignItems: 'center' },
   deleteBtn: { width: 44, height: 44, borderRadius: 16, backgroundColor: '#FFF3E0', justifyContent: 'center', alignItems: 'center' },

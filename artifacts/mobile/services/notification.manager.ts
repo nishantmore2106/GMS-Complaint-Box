@@ -151,5 +151,55 @@ export const NotificationManager = {
     if (founders) targets.push(...(founders as any));
 
     await this._sendToTargets(targets, 'complaint_resolved', { siteName, complaintId: id, supervisorName: supervisor_name });
+  },
+
+  /**
+   * Notify Client and Founder about progress steps (Arrived, Inspecting, etc.)
+   */
+  async notifyPhaseUpdate(complaint: any, nextPhase: string, siteName: string) {
+    const { id, client_id, company_id } = complaint;
+    const targets: { id: string, role: Role, expo_push_token?: string | null }[] = [];
+
+    // 1. Add Client
+    if (client_id) {
+       const { data: client } = await supabase.from('users').select('id, role, expo_push_token').eq('id', client_id).single();
+       if (client) targets.push(client as any);
+    }
+
+    // 2. Add Founders
+    const { data: founders } = await supabase.from('users').select('id, role, expo_push_token').eq('company_id', company_id).eq('role', 'founder');
+    if (founders) targets.push(...(founders as any));
+
+    // Custom formatting for progress
+    const phaseLabels: Record<string, string> = {
+      'arrived': 'has arrived at site',
+      'checking_issue': 'is now inspecting the issue',
+      'solving': 'is actively fixing the problem'
+    };
+
+    const actionText = phaseLabels[nextPhase] || `updated status to ${nextPhase}`;
+    const title = `Work Progress: ${siteName}`;
+    const body = `Supervisor ${actionText} for issue #${id.substring(0, 8).toUpperCase()}.`;
+
+    // Send to targets
+    for (const user of targets) {
+       await this._sendToTargets([user], 'system_alert' as any, { siteName, complaintId: id });
+    }
+  },
+
+  /**
+   * Clean up notifications older than 7 days
+   */
+  async cleanupOldNotifications() {
+     const sevenDaysAgo = new Date();
+     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+     
+     const { error, count } = await supabase
+       .from('notifications')
+       .delete()
+       .lt('created_at', sevenDaysAgo.toISOString());
+       
+     if (error) console.error("[NotificationManager] Cleanup error:", error);
+     else console.log("[NotificationManager] Purged", count, "old notifications.");
   }
 };

@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useEffect, useRef } from "react";
 import { Animated, Pressable, StyleSheet, Text, View, Platform, Alert } from "react-native";
+import { SoftCard } from "./SoftCard";
 import { ConfirmModal } from "./ConfirmModal";
 import { Colors } from "@/constants/colors";
 import { useApp, Complaint } from "@/context/AppContext";
@@ -90,16 +91,12 @@ export function ComplaintCard({ complaint }: Props) {
   };
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        isDarkMode && { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border, borderWidth: 1 },
-        pressed && styles.pressed
-      ]}
+    <SoftCard
       onPress={async () => {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         router.push(`/complaint/${complaint.id}`);
       }}
+      style={styles.card}
     >
       <View style={styles.header}>
         <View style={[styles.iconBox, { backgroundColor: isDarkMode ? statusColor + '20' : statusColor + '15' }]}>
@@ -109,7 +106,7 @@ export function ComplaintCard({ complaint }: Props) {
           <Text style={[styles.category, isDarkMode && { color: Colors.dark.text }]}>{complaint.category}</Text>
           <Text style={[styles.site, isDarkMode && { color: Colors.dark.textSub }]} numberOfLines={1}>{complaint.siteName}</Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: statusColor + '15' }]}>
+        <View style={[styles.statusBadge, { backgroundColor: statusColor + '10', borderColor: statusColor + '30', borderWidth: 1 }]}>
           <Text style={[styles.statusText, { color: statusColor }]}>
             {complaint.status.replace('_', ' ')}
           </Text>
@@ -131,7 +128,7 @@ export function ComplaintCard({ complaint }: Props) {
         {complaint.description}
       </Text>
 
-      {/* Zomato-style Live Status Banner */}
+      {/* Glassmorphic Live Status Banner */}
       {showLiveBanner && (
         <View style={[styles.liveBanner, isDarkMode && styles.liveBannerDark]}>
           <View style={styles.liveDotWrapper}>
@@ -139,7 +136,7 @@ export function ComplaintCard({ complaint }: Props) {
             <View style={styles.liveDotCore} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.liveBannerTitle}>
+            <Text style={[styles.liveBannerTitle, { color: Colors.inProgress }]}>
               {currentPhase === 'reported' ? 'Reported' :
                currentPhase === 'assigned' ? 'Supervisor Assigned' :
                currentPhase === 'in_transit' ? 'Supervisor In Transit' : 
@@ -149,7 +146,7 @@ export function ComplaintCard({ complaint }: Props) {
                currentPhase === 'solving' ? 'Solving Issue' :
                'Supervisor is on it!'}
             </Text>
-            <Text style={styles.liveBannerSub}>
+            <Text style={[styles.liveBannerSub, { color: Colors.inProgress }]}>
               {currentPhase === 'in_transit' ? 'Heading to site now' :
                currentPhase === 'arrived' ? 'Starting work session' :
                currentPhase === 'validating' ? 'Confirming details with site' :
@@ -159,7 +156,7 @@ export function ComplaintCard({ complaint }: Props) {
               {complaint.startedAt ? ` · ${workElapsed()} elapsed` : ''}
             </Text>
           </View>
-          <Feather name="chevron-right" size={14} color="#2563EB" />
+          <Feather name="chevron-right" size={14} color={Colors.inProgress} />
         </View>
       )}
 
@@ -169,7 +166,7 @@ export function ComplaintCard({ complaint }: Props) {
           <Text style={[styles.metaText, isDarkMode && { color: Colors.dark.textMuted }]}>{timeAgo()}</Text>
         </View>
         {complaint.priority === 'high' && (
-          <View style={[styles.priorityLabel, isDarkMode && { backgroundColor: 'rgba(249,115,22,0.15)' }]}>
+          <View style={[styles.priorityLabel, isDarkMode && { backgroundColor: 'rgba(249,115,22,0.1)' }]}>
             <Feather name="alert-circle" size={10} color="#F97316" />
             <Text style={styles.priorityText}>Urgent</Text>
           </View>
@@ -186,21 +183,13 @@ export function ComplaintCard({ complaint }: Props) {
         confirmText={isSup ? "Reject" : "Delete"}
         type="danger"
       />
-    </Pressable>
+    </SoftCard>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: 'white',
-    borderRadius: 32,
-    padding: 24,
     gap: 16,
-    shadowColor: '#146A65',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.06,
-    shadowRadius: 24,
-    elevation: 4,
   },
   pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
   header: { flexDirection: 'row', alignItems: 'center', gap: 16 },
@@ -229,15 +218,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#EFF6FF',
-    borderRadius: 16,
-    padding: 12,
+    backgroundColor: 'rgba(59, 130, 246, 0.05)',
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: 'rgba(59, 130, 246, 0.1)',
   },
   liveBannerDark: {
-    backgroundColor: 'rgba(59,130,246,0.1)',
-    borderColor: 'rgba(59,130,246,0.2)',
+    backgroundColor: 'rgba(37, 99, 235, 0.08)',
+    borderColor: 'rgba(37, 99, 235, 0.12)',
   },
   liveDotWrapper: {
     width: 20,

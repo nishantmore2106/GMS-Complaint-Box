@@ -4,6 +4,7 @@ import { useToast } from "@/components/Toast";
 import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
 import * as Notifications from "expo-notifications";
+import * as Haptics from "expo-haptics";
 
 export function NotificationListener() {
   const { currentUser, refreshData } = useApp();
@@ -14,14 +15,14 @@ export function NotificationListener() {
 
     // 1. Listen for standard notification history inserts (The "Pop-up" System)
     const notifChannel = supabase
-      .channel("public:notifications")
+      .channel(`user-notifs-${currentUser.id}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${currentUser.id}` },
         (payload) => {
           const newNotif = payload.new;
           showToast(newNotif.message || newNotif.title, "info");
-          refreshData(); // Sync dashboards
+          refreshData({ forceSync: true }); // Sync dashboards
         }
       )
       .subscribe();
@@ -47,13 +48,36 @@ export function NotificationListener() {
                 router.push({ pathname: "/complaint/[id]", params: { id: newComplaint.id } });
               }
             }
-            refreshData();
+            refreshData({ forceSync: true });
           }
         }
       )
       .subscribe();
 
-    // 2. Handle Push Notification Taps (Deep Linking)
+    // 3. Listen for new complaints (Direct Pop-up for Supervisors/Founders)
+    const newComplaintChannel = supabase
+      .channel(`new-complaints-v3-${currentUser.companyId}`) // Use unique v3 channel
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "complaints" },
+        (payload) => {
+          const newComplaint = payload.new;
+          console.log("[NotificationListener] New Complaint Inserted:", newComplaint.id);
+          
+          if ((currentUser.role === "supervisor" || currentUser.role === "founder") && newComplaint.company_id === currentUser.companyId) {
+             // Since INSERT payload doesn't have site_name, we just use category for now to be safe
+             // Components will reload site names after refreshData
+             showToast(`NEW MISSION: ${newComplaint.category || 'Issue'} reported`, "info");
+             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+             refreshData({ forceSync: true });
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log("[NotificationListener] Channel Status:", status);
+      });
+
+    // 4. Handle Push Notification Taps (Deep Linking)
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
       const complaintId = data?.complaintId || data?.complaint_id;
@@ -67,6 +91,7 @@ export function NotificationListener() {
     return () => {
       supabase.removeChannel(notifChannel);
       supabase.removeChannel(complaintChannel);
+      supabase.removeChannel(newComplaintChannel);
       subscription.remove();
     };
   }, [currentUser, showToast, refreshData]);

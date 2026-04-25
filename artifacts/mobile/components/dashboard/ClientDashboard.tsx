@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Platform, Image, Share, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Platform, Image, Share, Alert, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,7 +21,10 @@ export function ClientDashboard({
   t,
   setIsSupProfileVisible
 }: ClientDashboardProps) {
-  const { currentUser } = useApp();
+  const { currentUser, supervisorRequests, requestSupervisorAllocation } = useApp();
+  const { width } = useWindowDimensions();
+
+  const pendingRequest = supervisorRequests.find(r => r.siteId === clientStats.siteData?.id && r.status === 'pending');
 
   if (!clientStats) return null;
 
@@ -31,252 +34,205 @@ export function ClientDashboard({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
-        <View style={{ gap: 24, paddingBottom: 40 }}>
+        <View style={{ gap: 28, paddingBottom: 60, paddingTop: 12 }}>
           
-          {/* 0. My Client Overview */}
-          <View style={{ paddingHorizontal: 24, paddingTop: 10 }}>
-            <Text style={[styles.sectionHeading, { paddingHorizontal: 0, marginBottom: 12 }, isDarkMode && { color: 'white' }]}>My Profile</Text>
-            <View style={[styles.supervisorCard, isDarkMode && styles.darkCard, { padding: 16 }]}>
-              <View style={[styles.supAvatarLg, { width: 56, height: 56, borderRadius: 28 }, isDarkMode && { backgroundColor: Colors.dark.surfaceElevated }]}>
-                <Text style={[styles.supAvatarText, { fontSize: 18 }, isDarkMode && { color: 'white' }]}>
+          {/* 1. Profile Context (Glassmorphic) */}
+          <View style={styles.sectionContainer}>
+            <View style={[styles.profileGlass, isDarkMode && styles.darkGlass]}>
+              <View style={[styles.avatarBox, isDarkMode && styles.darkAvatar]}>
+                <Text style={[styles.avatarText, isDarkMode && styles.darkText]}>
                   {currentUser?.name?.substring(0,2).toUpperCase() || 'CL'}
                 </Text>
               </View>
-              <View style={styles.supInfoGroup}>
-                <Text style={[styles.supNameLg, { fontSize: 16 }, isDarkMode && { color: 'white' }]}>{currentUser?.name}</Text>
-                <Text style={[styles.supRoleLg, { color: Colors.primary }]}>{clientStats.siteName}</Text>
-                <View style={styles.supContactRow}>
-                  <Feather name="phone" size={13} color={isDarkMode ? Colors.dark.textMuted : '#6B7280'} />
-                  <Text style={[styles.supContactText, isDarkMode && { color: Colors.dark.textMuted }]}>{currentUser?.phone || 'No phone provided'}</Text>
-                </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.profileName, isDarkMode && styles.darkText]}>{currentUser?.name}</Text>
+                <Text style={styles.profileRole}>{clientStats.siteName}</Text>
               </View>
-              <Pressable style={styles.fLogIconWrap} onPress={() => router.push('/(tabs)/profile')}>
-                <Feather name="edit-3" size={16} color={Colors.primary} />
+              <Pressable style={styles.editBtn} onPress={() => router.push('/(tabs)/profile')}>
+                <Feather name="settings" size={18} color="#94A3B8" />
               </Pressable>
             </View>
           </View>
 
-          {/* New QR Section for Employees */}
-          <View style={{ paddingHorizontal: 24, marginTop: -8 }}>
+          {/* 2. Feedback Portal (Interactive Card) */}
+          <View style={styles.sectionContainer}>
             <LinearGradient
-              colors={['#3B82F6', '#2563EB']}
-              style={{ padding: 20, borderRadius: 24, gap: 12, flexDirection: 'row', alignItems: 'center' }}
+              colors={['#10B981', '#059669']}
+              style={styles.portalGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
             >
-              <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' }}>
-                <Feather name="maximize" size={24} color="white" />
+              <View style={styles.portalContent}>
+                <View style={styles.portalIconBox}>
+                  <Feather name="maximize" size={24} color="white" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.portalTitle}>Employee Feedback Hub</Text>
+                  <Text style={styles.portalSub}>Deploy anonymous site QR</Text>
+                </View>
+                <Pressable 
+                  style={styles.portalCTA}
+                  onPress={() => {
+                    const url = `https://gms-complaint-box.netlify.app/public/scan/${clientStats.siteData?.id}`;
+                    Share.share({
+                      message: `GMS Site QR Portal: ${clientStats.siteName}. Scan to report cleaning or behavior issues: ${url}`,
+                      url: url
+                    });
+                  }}
+                >
+                  <Feather name="share-2" size={18} color="#059669" />
+                </Pressable>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: 'white', fontSize: 16, fontFamily: 'Inter_800ExtraBold' }}>Employee QR Portal</Text>
-                <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>Share this link for anonymous site feedback</Text>
-              </View>
-              <Pressable 
-                onPress={() => {
-                  const url = `https://gms-complaint-box.netlify.app/public/scan/${clientStats.siteData?.id}`;
-                  Share.share({
-                    message: `GMS Site QR Portal: ${clientStats.siteName}. Scan to report cleaning or behavior issues: ${url}`,
-                    url: url
-                  });
-                }}
-                style={{ backgroundColor: 'white', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100 }}
-              >
-                <Text style={{ color: '#2563EB', fontSize: 13, fontFamily: 'Inter_800ExtraBold' }}>Share Link</Text>
-              </Pressable>
             </LinearGradient>
           </View>
 
-          {/* 0.5 Site Profile */}
-          <View style={{ paddingHorizontal: 24, paddingTop: 10 }}>
-            <Text style={[styles.sectionHeading, { paddingHorizontal: 0, marginBottom: 12 }, isDarkMode && { color: 'white' }]}>Site Profile</Text>
-            <View style={[styles.supervisorCard, isDarkMode && styles.darkCard, { padding: 16 }]}>
-              {clientStats.siteData?.logoUrl ? (
-                <Image 
-                  source={{ uri: clientStats.siteData.logoUrl }} 
-                  style={{ width: 64, height: 64, borderRadius: 16 }} 
-                  resizeMode="contain"
-                />
-              ) : (
-                <View style={[styles.supAvatarLg, { width: 64, height: 64, borderRadius: 16, backgroundColor: isDarkMode ? 'rgba(59,130,246,0.1)' : '#EFF6FF' }]}>
-                  <Feather name="image" size={24} color="#3B82F6" />
+          {/* 3. Site Intelligence (Tonal Surface) */}
+          <View style={styles.sectionContainer}>
+            <Text style={[styles.sectionTitle, isDarkMode && styles.darkText]}>{t('site_intelligence', 'Site Intelligence')}</Text>
+            <View style={[styles.siteIntelCard, isDarkMode && styles.darkCard]}>
+              <View style={styles.intelHeader}>
+                {clientStats.siteData?.logoUrl ? (
+                  <Image source={{ uri: clientStats.siteData.logoUrl }} style={styles.siteLogo} resizeMode="contain" />
+                ) : (
+                  <View style={styles.logoPlaceholder}>
+                    <Feather name="home" size={24} color="#3B82F6" />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.siteName, isDarkMode && styles.darkText]}>{clientStats.siteName}</Text>
+                  <View style={styles.addressRow}>
+                    <Feather name="map-pin" size={12} color="#94A3B8" />
+                    <Text style={styles.addressText} numberOfLines={1}>{clientStats.siteData?.address || 'Site mapping pending'}</Text>
+                  </View>
                 </View>
-              )}
-              <View style={styles.supInfoGroup}>
-                <Text style={[styles.supNameLg, { fontSize: 16 }, isDarkMode && { color: 'white' }]}>{clientStats.siteName}</Text>
-                <View style={[styles.supContactRow, { alignItems: 'flex-start' }]}>
-                  <Feather name="map-pin" size={13} color={isDarkMode ? Colors.dark.textMuted : '#6B7280'} style={{ marginTop: 2 }} />
-                  <Text style={[styles.supContactText, isDarkMode && { color: Colors.dark.textMuted }, { flex: 1 }]}>
-                    {clientStats.siteData?.address || 'Precise address pending'}
-                  </Text>
-                </View>
-                <View style={styles.supContactRow}>
-                  <Feather name="phone" size={13} color={isDarkMode ? Colors.dark.textMuted : '#6B7280'} />
-                  <Text style={[styles.supContactText, isDarkMode && { color: Colors.dark.textMuted }]}>
-                    {clientStats.siteData?.phone || 'Site contact pending'}
-                  </Text>
-                </View>
+              </View>
+              
+              <View style={styles.intelStats}>
+                 <View style={styles.intelStatItem}>
+                    <Text style={[styles.intelVal, isDarkMode && styles.darkText]}>{clientStats.pendingCount}</Text>
+                    <Text style={styles.intelLabel}>{t('pending', 'Pending')}</Text>
+                 </View>
+                 <View style={styles.intelDivider} />
+                 <View style={styles.intelStatItem}>
+                    <Text style={[styles.intelVal, isDarkMode && styles.darkText]}>{clientStats.inProgressCount}</Text>
+                    <Text style={styles.intelLabel}>{t('active', 'Active')}</Text>
+                 </View>
+                 <View style={styles.intelDivider} />
+                 <View style={styles.intelStatItem}>
+                    <Text style={[styles.intelVal, isDarkMode && styles.darkText]}>{clientStats.resolvedToday}</Text>
+                    <Text style={styles.intelLabel}>{t('resolved', 'Resolved')}</Text>
+                 </View>
               </View>
             </View>
           </View>
 
-          {/* 1. Smart Status Bar */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, gap: 10 }}>
-            <View style={[styles.statusCard, isDarkMode && styles.darkCard, isDarkMode && styles.darkCardGlow]}>
-              <View style={[styles.sStatusIconCircle, { backgroundColor: isDarkMode ? 'rgba(245,158,11,0.1)' : '#FEF3C7' }]}>
-                <Feather name="clock" size={14} color="#F59E0B" />
+          {/* 4. Service Health (Editorial Hero) */}
+          <View style={styles.sectionContainer}>
+            <LinearGradient
+              colors={isDarkMode ? ['#1E293B', '#0F172A'] : ['#F8FAFC', '#F1F5F9']}
+              style={styles.healthHero}
+            >
+              <View style={styles.healthContent}>
+                <View style={[styles.healthBadge, { backgroundColor: clientStats.siteHealth === 'critical' ? '#EF4444' : '#10B981' }]}>
+                  <Text style={styles.healthBadgeText}>{clientStats.siteHealth.toUpperCase()}</Text>
+                </View>
+                <Text style={[styles.healthTitle, isDarkMode && styles.darkText]}>
+                  {clientStats.siteHealth === 'critical' ? 'Attention Required' : 'Service Optimal'}
+                </Text>
+                <Text style={styles.healthDesc}>
+                  {clientStats.siteActiveCount > 0 
+                    ? `Currently managing ${clientStats.siteActiveCount} active service requests.`
+                    : 'Your site is currently operating at peak efficiency.'}
+                </Text>
+                <Pressable style={styles.healthCTA} onPress={() => router.push("/(tabs)/complaints")}>
+                  <Text style={styles.healthCTAText}>Access Full Logs</Text>
+                  <Feather name="arrow-right" size={16} color="white" />
+                </Pressable>
               </View>
-              <Text style={[styles.sStatusNum, { color: '#F59E0B' }]}>{clientStats.pendingCount}</Text>
-              <Text style={[styles.sStatusLabel, isDarkMode && styles.darkTextSub]}>{t('pending', 'Pending')}</Text>
-            </View>
-            <View style={[styles.statusCard, isDarkMode && styles.darkCard]}>
-              <View style={[styles.sStatusIconCircle, { backgroundColor: isDarkMode ? 'rgba(59,130,246,0.1)' : '#DBEAFE' }]}>
-                <Feather name="activity" size={14} color="#3B82F6" />
-              </View>
-              <Text style={[styles.sStatusNum, { color: '#3B82F6' }]}>{clientStats.inProgressCount}</Text>
-              <Text style={[styles.sStatusLabel, isDarkMode && styles.darkTextSub]}>{t('in_progress', 'In Progress')}</Text>
-            </View>
-            <View style={[styles.statusCard, isDarkMode && styles.darkCard]}>
-              <View style={[styles.sStatusIconCircle, { backgroundColor: isDarkMode ? 'rgba(16,185,129,0.1)' : '#DCFCE7' }]}>
-                <Feather name="check-circle" size={14} color="#10B981" />
-              </View>
-              <Text style={[styles.sStatusNum, { color: '#10B981' }]}>{clientStats.resolvedToday}</Text>
-              <Text style={[styles.sStatusLabel, isDarkMode && styles.darkTextSub]}>{t('resolved_today', 'Resolved Today')}</Text>
-            </View>
-          </ScrollView>
+            </LinearGradient>
+          </View>
 
-          {/* 2. Dynamic Hero Card */}
-          <LinearGradient
-            colors={isDarkMode ? Colors.dark.heroGradient : ['#146A65', '#0D4D49'] as any}
-            style={[styles.fCriticalHero, isDarkMode && styles.darkCardGlow]}
-          >
-            <View style={styles.fHeroContent}>
-              <View style={[
-                styles.fAlertBadge, 
-                { backgroundColor: clientStats.siteHealth === 'critical' ? 'rgba(239,68,68,0.2)' : (clientStats.siteHealth === 'warning' ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)') },
-                isDarkMode && { borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1 }
-              ]}>
-                 <View style={[styles.fPulseRing, { backgroundColor: clientStats.siteHealth === 'critical' ? '#EF4444' : (clientStats.siteHealth === 'warning' ? '#F59E0B' : '#10B981') }]} />
-                 <Text style={[styles.fAlertBadgeText, isDarkMode && { color: 'white' }]}>
-                   {clientStats.siteHealth.toUpperCase()} {t('site_status', 'STATUS')}
-                 </Text>
+          {/* 5. Command Center (Tactile Buttons) */}
+          <View style={styles.commandGrid}>
+            <Pressable style={[styles.commandBtn, isDarkMode && styles.darkCard]} onPress={() => router.push("/complaint/new")}>
+              <View style={[styles.commandIconBox, { backgroundColor: '#FEE2E2' }]}>
+                <Feather name="plus" size={24} color="#EF4444" />
               </View>
-              <Text style={[styles.fHeroTitle, isDarkMode && { color: 'white' }]}>
-                {clientStats.siteHealth === 'critical' ? t('site_needs_attention', 'Priority Issues detected') : 
-                 (clientStats.siteHealth === 'warning' ? t('site_warning', 'Maintenance in progress') : t('all_clear', 'All Quiet on Your Site'))}
-              </Text>
-              <Text style={styles.fHeroSub}>
-                {clientStats.siteActiveCount > 0 
-                  ? `${t('currently', 'Currently')} ${clientStats.siteActiveCount} ${t('active_tasks_lower', 'active issues')} ${t('at_your_site', 'at your site')}.`
-                  : t('no_pending_desc', 'No active maintenance issues at the moment.')}
-              </Text>
-              <Pressable style={styles.fHeroCTA} onPress={() => router.push("/(tabs)/complaints")}>
-                <Text style={styles.fHeroCTAText}>{t('track_all', 'Track All Issues')}</Text>
-                <Feather name="arrow-right" size={16} color="white" />
-              </Pressable>
-            </View>
-          </LinearGradient>
-
-          {/* 3. Client Quick Actions */}
-          <View style={styles.fActionGrid}>
-            <Pressable style={[styles.fActionBtn, isDarkMode && styles.darkCard]} onPress={() => router.push("/complaint/new")}>
-              <View style={[styles.fActionIcon, { backgroundColor: isDarkMode ? 'rgba(239,68,68,0.1)' : '#FEE2E2' }]}>
-                <Feather name="plus-circle" size={24} color="#EF4444" />
-              </View>
-              <Text style={[styles.fActionLabel, isDarkMode && styles.darkTextSub]}>{t('report_issue', 'Report Issue')}</Text>
+              <Text style={[styles.commandLabel, isDarkMode && styles.darkText]}>{t('request_service', 'Request Service')}</Text>
             </Pressable>
-            <Pressable style={[styles.fActionBtn, isDarkMode && styles.darkCard]} onPress={() => router.push("/(tabs)/complaints")}>
-              <View style={[styles.fActionIcon, { backgroundColor: isDarkMode ? 'rgba(59,130,246,0.1)' : '#EFF6FF' }]}>
-                <Feather name="list" size={24} color="#3B82F6" />
+            <Pressable style={[styles.commandBtn, isDarkMode && styles.darkCard]} onPress={() => router.push("/(tabs)/complaints")}>
+              <View style={[styles.commandIconBox, { backgroundColor: '#EFF6FF' }]}>
+                <Feather name="activity" size={24} color="#3B82F6" />
               </View>
-              <Text style={[styles.fActionLabel, isDarkMode && styles.darkTextSub]}>{t('my_history', 'My History')}</Text>
+              <Text style={[styles.commandLabel, isDarkMode && styles.darkText]}>{t('view_history', 'View History')}</Text>
             </Pressable>
           </View>
 
-          {/* 3.5 Site Supervisor Feature */}
-          <View style={{ paddingHorizontal: 24 }}>
-            <Text style={[styles.sectionHeading, { paddingHorizontal: 0 }, isDarkMode && { color: 'white' }]}>{t('site_manager', 'Site Supervisor')}</Text>
+          {/* 6. Facility Management (Profile Card) */}
+          <View style={styles.sectionContainer}>
+            <Text style={[styles.sectionTitle, isDarkMode && styles.darkText]}>{t('facility_management', 'Facility Management')}</Text>
             {clientStats.supervisor ? (
               <View style={[styles.supervisorCard, isDarkMode && styles.darkCard]}>
-                <View style={[styles.supAvatarLg, isDarkMode && { backgroundColor: Colors.dark.surfaceElevated }]}>
-                  <Text style={[styles.supAvatarText, isDarkMode && { color: 'white' }]}>
+                <View style={[styles.supAvatar, isDarkMode && styles.darkAvatar]}>
+                  <Text style={[styles.avatarText, isDarkMode && styles.darkText]}>
                     {clientStats.supervisor.name?.substring(0, 2).toUpperCase() || "SM"}
                   </Text>
                 </View>
-                <View style={styles.supInfoGroup}>
-                   <Text style={[styles.supNameLg, isDarkMode && { color: 'white' }]}>{clientStats.supervisor.name}</Text>
-                   <Text style={[styles.supRoleLg, { color: Colors.primary }]}>Facility Manager</Text>
-                   
-                   <View style={styles.supContactRow}>
-                     <Feather name="mail" size={13} color={isDarkMode ? Colors.dark.textMuted : '#6B7280'} />
-                     <Text style={[styles.supContactText, isDarkMode && { color: Colors.dark.textMuted }]}>{clientStats.supervisor.email}</Text>
-                   </View>
-                   <View style={styles.supContactRow}>
-                     <Feather name="phone" size={13} color={isDarkMode ? Colors.dark.textMuted : '#6B7280'} />
-                     <Text style={[styles.supContactText, isDarkMode && { color: Colors.dark.textMuted }]}>{clientStats.supervisor.phone || 'Contact number pending'}</Text>
+                <View style={{ flex: 1 }}>
+                   <Text style={[styles.supName, isDarkMode && styles.darkText]}>{clientStats.supervisor.name}</Text>
+                   <Text style={styles.supRole}>Primary Supervisor</Text>
+                   <View style={styles.contactRow}>
+                      <Feather name="mail" size={12} color="#94A3B8" />
+                      <Text style={styles.contactText}>{clientStats.supervisor.email}</Text>
                    </View>
                 </View>
+                <Pressable style={styles.callBtn} onPress={() => Alert.alert('Calling', `Dialing ${clientStats.supervisor.phone || 'N/A'}`)}>
+                   <Feather name="phone" size={20} color="#3B82F6" />
+                </Pressable>
               </View>
             ) : (
-              <View style={[styles.supervisorCard, isDarkMode && styles.darkCard, { alignItems: 'center', paddingVertical: 32 }]}>
-                 <View style={[styles.supAvatarLg, { backgroundColor: isDarkMode ? 'rgba(239,68,68,0.1)' : '#FEE2E2', marginBottom: 12 }]}>
-                    <Feather name="user-x" size={28} color="#EF4444" />
-                 </View>
-                 <Text style={[styles.supNameLg, isDarkMode && { color: 'white' }]}>Locum</Text>
-                 <Text style={[styles.supRoleLg, { color: '#EF4444', textAlign: 'center' }]}>Pending Management Allocation</Text>
+              <View style={[styles.emptySup, isDarkMode && styles.darkCard]}>
+                 <Feather name="user-x" size={24} color={pendingRequest ? "#3B82F6" : "#EF4444"} />
+                 <Text style={[styles.emptySupText, isDarkMode && styles.darkText]}>
+                    {pendingRequest ? 'Allocation Request Sent' : 'No supervisor assigned yet.'}
+                 </Text>
+                 {!pendingRequest && (
+                    <Pressable 
+                        style={styles.requestBtn}
+                        onPress={() => {
+                            Alert.alert(
+                                "Request Supervisor",
+                                "Send a request to the administrator to assign a supervisor to this site?",
+                                [
+                                    { text: "Cancel", style: "cancel" },
+                                    { text: "Request", onPress: () => requestSupervisorAllocation(clientStats.siteData?.id) }
+                                ]
+                            )
+                        }}
+                    >
+                        <Text style={styles.requestBtnText}>Request Allocation</Text>
+                    </Pressable>
+                 )}
               </View>
             )}
           </View>
 
-          {/* 4. Mini Analytics Card */}
-          <View style={{ paddingHorizontal: 24 }}>
-             <View style={[styles.clientMiniAnalytics, isDarkMode && styles.darkCard]}>
-                <View style={styles.miniAnalyticItem}>
-                   <Text style={[styles.miniAnalyticVal, isDarkMode && { color: 'white' }]}>{clientStats.weeklyResolved}</Text>
-                   <Text style={[styles.miniAnalyticLabel, isDarkMode && { color: Colors.dark.textMuted }]}>{t('resolved_this_week', 'Resolved this week')}</Text>
-                </View>
-                <View style={[styles.miniAnalyticDivider, isDarkMode && { backgroundColor: Colors.dark.border }]} />
-                <View style={styles.miniAnalyticItem}>
-                   <Text style={[styles.miniAnalyticVal, isDarkMode && { color: 'white' }]}>{clientStats.avgResStr}</Text>
-                   <Text style={[styles.miniAnalyticLabel, isDarkMode && { color: Colors.dark.textMuted }]}>{t('avg_resolution', 'Avg. Resolution')}</Text>
-                </View>
-             </View>
-          </View>
-
-          {/* 5. Smart Alerts */}
-          {clientStats.alerts.length > 0 && (
-            <View style={{ paddingHorizontal: 24 }}>
-              <Text style={[styles.sectionHeading, { paddingHorizontal: 0 }, isDarkMode && { color: 'white' }]}>{t('updates_for_you', 'Updates For You')}</Text>
-              <View style={[styles.fFeed, isDarkMode && { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border }]}>
-                {clientStats.alerts.map((alert: any, idx: number) => (
-                  <View key={idx} style={[styles.fLogItem, idx === clientStats.alerts.length - 1 && { borderBottomWidth: 0 }]}>
-                    <View style={[styles.fLogIconWrap, { backgroundColor: isDarkMode ? `${alert.color}20` : `${alert.color}15` }]}>
-                      <Feather name={alert.icon as any} size={14} color={alert.color} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.fLogMessage, isDarkMode && { color: Colors.dark.textSub }]}>{alert.text}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* 6. Active Issues Snapshot */}
+          {/* 7. Active Missions (Horizontal Slider) */}
           {clientStats.activeComplaints.length > 0 && (
             <View>
-              <View style={styles.recentHeader}>
-                <Text style={[styles.sectionHeading, { paddingHorizontal: 24, marginBottom: 0 }, isDarkMode && { color: 'white' }]}>{t('active_issues', 'Active Issues')}</Text>
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 12, gap: 16 }}>
+              <Text style={[styles.sectionTitle, { marginLeft: 24 }, isDarkMode && styles.darkText]}>{t('active_missions', 'Active Missions')}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.missionsScroll}>
                 {clientStats.activeComplaints.map((c: any) => (
-                  <Pressable key={c.id} style={[styles.fSiteCard, isDarkMode && styles.darkCard]} onPress={() => router.push(`/complaint/${c.id}`)}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.fSiteName, isDarkMode && { color: 'white' }]} numberOfLines={1}>{c.category}</Text>
-                      <View style={styles.fSiteMetaRow}>
-                        <Feather name="clock" size={12} color={isDarkMode ? Colors.dark.textMuted : Colors.textMuted} />
-                        <Text style={[styles.fSiteMetaText, isDarkMode && { color: Colors.dark.textMuted }]}>{new Date(c.createdAt).toLocaleDateString()}</Text>
-                      </View>
+                  <Pressable key={c.id} style={[styles.missionCard, isDarkMode && styles.darkCard]} onPress={() => router.push(`/complaint/${c.id}`)}>
+                    <View style={styles.missionHeader}>
+                       <Text style={[styles.missionTitle, isDarkMode && styles.darkText]} numberOfLines={1}>{c.category}</Text>
+                       <View style={[styles.priorityTag, { backgroundColor: c.priority === 'high' ? '#FEE2E2' : '#F1F5F9' }]}>
+                          <Text style={[styles.priorityText, { color: c.priority === 'high' ? '#EF4444' : '#64748B' }]}>{c.priority.toUpperCase()}</Text>
+                       </View>
                     </View>
-                    <View style={[styles.fHealthBadge, { backgroundColor: c.priority === 'high' ? '#FEE2E2' : '#EFF6FF' }]}>
-                      <Text style={[styles.fHealthText, { color: c.priority === 'high' ? '#EF4444' : '#3B82F6' }]}>{c.priority.toUpperCase()}</Text>
+                    <View style={styles.missionFooter}>
+                       <Feather name="clock" size={12} color="#94A3B8" />
+                       <Text style={styles.missionDate}>{new Date(c.createdAt).toLocaleDateString()}</Text>
                     </View>
                   </Pressable>
                 ))}
@@ -284,7 +240,7 @@ export function ClientDashboard({
             </View>
           )}
 
-          {/* 7. GMS Company Card */}
+          {/* 8. GMS Identity */}
           <GMSCompanyCard isDarkMode={isDarkMode} />
 
         </View>
@@ -295,69 +251,88 @@ export function ClientDashboard({
 
 const styles = StyleSheet.create({
   scroll: { paddingBottom: 120 },
-  statusCard: {
-    backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 24,
-    minWidth: 160,
+  sectionContainer: { paddingHorizontal: 24 },
+  sectionTitle: { fontSize: 18, fontFamily: 'Inter_900Black', color: '#111827', marginBottom: 16 },
+  profileGlass: {
     flexDirection: 'row',
     alignItems: 'center',
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10 },
-      android: { elevation: 2 }
-    }),
+    padding: 16,
+    borderRadius: 24,
+    backgroundColor: 'white',
+    gap: 16,
     borderWidth: 1,
     borderColor: '#F1F5F9',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.02, shadowRadius: 10 },
+      android: { elevation: 1 }
+    })
   },
-  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.border },
-  darkCardGlow: {
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 15,
-    elevation: 10,
-    borderColor: 'rgba(59,130,246,0.3)',
+  darkGlass: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.borderStrong },
+  avatarBox: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' },
+  darkAvatar: { backgroundColor: Colors.dark.bg },
+  avatarText: { fontSize: 16, fontFamily: 'Inter_900Black', color: '#1E293B' },
+  profileName: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: '#111827' },
+  profileRole: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#3B82F6' },
+  editBtn: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  portalGradient: { borderRadius: 28, padding: 24 },
+  portalContent: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  portalIconBox: { width: 48, height: 48, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+  portalTitle: { color: 'white', fontSize: 18, fontFamily: 'Inter_900Black' },
+  portalSub: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  portalCTA: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center' },
+  siteIntelCard: { backgroundColor: 'white', borderRadius: 28, padding: 24, borderWidth: 1, borderColor: '#F1F5F9' },
+  intelHeader: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 24 },
+  siteLogo: { width: 56, height: 56, borderRadius: 16 },
+  logoPlaceholder: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center' },
+  siteName: { fontSize: 18, fontFamily: 'Inter_900Black', color: '#111827' },
+  addressRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  addressText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#94A3B8' },
+  intelStats: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 20 },
+  intelStatItem: { flex: 1, alignItems: 'center', gap: 4 },
+  intelVal: { fontSize: 18, fontFamily: 'Inter_900Black', color: '#111827' },
+  intelLabel: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#94A3B8' },
+  intelDivider: { width: 1, height: 30, backgroundColor: '#F1F5F9' },
+  healthHero: { borderRadius: 32, padding: 28, overflow: 'hidden' },
+  healthContent: { gap: 12 },
+  healthBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100, alignSelf: 'flex-start' },
+  healthBadgeText: { color: 'white', fontSize: 10, fontFamily: 'Inter_800ExtraBold', letterSpacing: 0.5 },
+  healthTitle: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#111827' },
+  healthDesc: { fontSize: 14, fontFamily: 'Inter_500Medium', color: '#64748B', lineHeight: 22 },
+  healthCTA: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#0F172A', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 100, alignSelf: 'flex-start', marginTop: 8 },
+  healthCTAText: { color: 'white', fontSize: 14, fontFamily: 'Inter_800ExtraBold' },
+  commandGrid: { flexDirection: 'row', paddingHorizontal: 24, gap: 12 },
+  commandBtn: { flex: 1, backgroundColor: 'white', borderRadius: 28, padding: 24, alignItems: 'center', gap: 16, borderWidth: 1, borderColor: '#F1F5F9' },
+  commandIconBox: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center' },
+  commandLabel: { fontSize: 13, fontFamily: 'Inter_800ExtraBold', color: '#111827', textAlign: 'center' },
+  supervisorCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', padding: 20, borderRadius: 28, gap: 16, borderWidth: 1, borderColor: '#F1F5F9' },
+  supAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' },
+  supName: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: '#111827' },
+  supRole: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#3B82F6', marginBottom: 4 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  contactText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#94A3B8' },
+  callBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center' },
+  emptySup: { padding: 32, borderRadius: 28, backgroundColor: '#F8FAFC', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#F1F5F9' },
+  emptySupText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: '#94A3B8' },
+  missionsScroll: { paddingHorizontal: 24, gap: 16, paddingBottom: 12 },
+  missionCard: { width: 220, backgroundColor: 'white', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: '#F1F5F9' },
+  missionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
+  missionTitle: { flex: 1, fontSize: 15, fontFamily: 'Inter_800ExtraBold', color: '#111827', marginRight: 8 },
+  priorityTag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  priorityText: { fontSize: 10, fontFamily: 'Inter_800ExtraBold' },
+  missionFooter: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  missionDate: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#94A3B8' },
+  darkCard: { backgroundColor: Colors.dark.surface, borderColor: Colors.dark.borderStrong },
+  darkText: { color: Colors.dark.text },
+  requestBtn: { 
+    marginTop: 12, 
+    backgroundColor: '#3B82F6', 
+    paddingHorizontal: 20, 
+    paddingVertical: 10, 
+    borderRadius: 12 
   },
-  sStatusIconCircle: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  sStatusNum: { fontSize: 20, fontFamily: 'Inter_900Black' },
-  sStatusLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: Colors.textMuted },
-  darkTextSub: { color: Colors.dark.textSub },
-  fCriticalHero: { marginHorizontal: 24, borderRadius: 32, padding: 24, marginTop: 10 },
-  fHeroContent: { gap: 12 },
-  fAlertBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100, alignSelf: 'flex-start' },
-  fPulseRing: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'white' },
-  fAlertBadgeText: { color: 'white', fontSize: 10, fontFamily: 'Inter_800ExtraBold' },
-  fHeroTitle: { color: 'white', fontSize: 22, fontFamily: 'Inter_900Black', lineHeight: 28 },
-  fHeroSub: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontFamily: 'Inter_500Medium', lineHeight: 20 },
-  fHeroCTA: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'white', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100, alignSelf: 'flex-start', marginTop: 8 },
-  fHeroCTAText: { color: '#146A65', fontSize: 13, fontFamily: 'Inter_700Bold' },
-  fActionGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 24, gap: 12 },
-  fActionBtn: { flex: 1, minWidth: '45%', backgroundColor: 'white', borderRadius: 24, padding: 16, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#F1F5F9' },
-  fActionIcon: { width: 52, height: 52, borderRadius: 26, justifyContent: 'center', alignItems: 'center' },
-  fActionLabel: { fontSize: 13, fontFamily: 'Inter_700Bold', color: Colors.text },
-  clientMiniAnalytics: { flexDirection: 'row', backgroundColor: 'white', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: '#F1F5F9', alignItems: 'center' },
-  miniAnalyticItem: { flex: 1, alignItems: 'center', gap: 4 },
-  miniAnalyticVal: { fontSize: 20, fontFamily: 'Inter_900Black', color: '#111827' },
-  miniAnalyticLabel: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#64748B' },
-  miniAnalyticDivider: { width: 1, height: 40, backgroundColor: '#F1F5F9', marginHorizontal: 12 },
-  sectionHeading: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: Colors.text },
-  fFeed: { backgroundColor: 'white', borderRadius: 28, padding: 20, borderWidth: 1, borderColor: '#F1F5F9' },
-  fLogItem: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  fLogIconWrap: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  fLogMessage: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#334155' },
-  recentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  fSiteCard: { width: 180, backgroundColor: 'white', borderRadius: 24, padding: 16, borderWidth: 1, borderColor: '#F1F5F9', justifyContent: 'space-between' },
-  fSiteName: { fontSize: 15, fontFamily: 'Inter_800ExtraBold', color: '#111827' },
-  fSiteMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
-  fSiteMetaText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: Colors.textMuted },
-  fHealthBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 100, alignSelf: 'flex-start', marginTop: 12 },
-  fHealthText: { fontSize: 10, fontFamily: 'Inter_800ExtraBold' },
-  supervisorCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', padding: 20, borderRadius: 24, gap: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 20, elevation: 4, borderWidth: 1, borderColor: '#F1F5F9' },
-  supAvatarLg: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
-  supAvatarText: { fontSize: 20, fontFamily: 'Inter_900Black', color: '#4B5563' },
-  supInfoGroup: { flex: 1, gap: 4 },
-  supNameLg: { fontSize: 18, fontFamily: 'Inter_900Black', color: '#111827' },
-  supRoleLg: { fontSize: 13, fontFamily: 'Inter_700Bold', marginBottom: 8 },
-  supContactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
-  supContactText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#6B7280' },
+  requestBtnText: { 
+    color: 'white', 
+    fontSize: 14, 
+    fontFamily: 'Inter_800ExtraBold' 
+  },
 });

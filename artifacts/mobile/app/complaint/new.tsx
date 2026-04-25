@@ -93,27 +93,35 @@ export default function NewComplaintScreen() {
   const supervisor = assignedSupervisorId ? users.find((u) => u.id === assignedSupervisorId) : null;
   const noSupervisor = role === 'client' && !assignedSupervisorId;
 
-  const handlePickPhoto = async () => {
-    // 🛡️ PERMISSION CHECK (Production requirement)
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      showToast("Gallery access required to attach photos", "error");
-      return;
-    }
-
+  const handlePickPhoto = async (mode: 'camera' | 'gallery') => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({ 
-        mediaTypes: ['images'], 
-        quality: 0.7 
-      });
-      if (!result.canceled && result.assets[0]) {
+      const permission = mode === 'camera' 
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (permission.status !== 'granted') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        showToast(`${mode === 'camera' ? 'Camera' : 'Gallery'} access required`, "error");
+        return;
+      }
+
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ['images'],
+        quality: 0.7,
+        allowsEditing: true,
+      };
+
+      const result = mode === 'camera'
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+
+      if (!result.canceled && result.assets[0].uri) {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setBeforeMedia(result.assets[0].uri);
       }
     } catch (err) {
-      console.warn("[NewComplaint] Image pick error:", err);
-      showToast("Unable to open gallery", "error");
+      console.warn(`[NewComplaint] Image pick error (${mode}):`, err);
+      showToast("Unable to process image", "error");
     }
   };
 
@@ -187,26 +195,45 @@ export default function NewComplaintScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Photo Upload Area */}
-        <Pressable onPress={handlePickPhoto}>
-          <View style={[styles.photoCard, isDarkMode && { backgroundColor: Colors.dark.surface }]}>
-            {beforeMedia ? (
-              <View style={styles.previewContainer}>
-                <Image source={{ uri: beforeMedia }} style={styles.preview} />
-                <Pressable style={styles.removeBtn} onPress={() => setBeforeMedia(null)}>
-                  <Feather name="trash-2" size={16} color="white" />
+        <View style={[styles.photoCard, isDarkMode && { backgroundColor: Colors.dark.surface }]}>
+          {beforeMedia ? (
+            <View style={styles.previewContainer}>
+              <Image source={{ uri: beforeMedia }} style={styles.preview} />
+              <Pressable style={styles.removeBtn} onPress={() => setBeforeMedia(null)}>
+                <Feather name="trash-2" size={16} color="white" />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={[styles.emptyPhoto, isDarkMode && { backgroundColor: '#1E293B30', borderColor: Colors.dark.border }]}>
+              <Text style={[styles.photoTitle, isDarkMode && { color: Colors.dark.text }, { marginBottom: 4 }]}>Attach Visual Evidence</Text>
+              <Text style={[styles.photoSub, isDarkMode && { color: Colors.dark.textMuted }, { marginBottom: 16 }]}>Photos help our staff resolve issues faster</Text>
+              
+              <View style={styles.photoSourceRow}>
+                <Pressable 
+                  style={[styles.sourceBtn, isDarkMode && { backgroundColor: Colors.dark.surfaceElevated }]} 
+                  onPress={() => handlePickPhoto('camera')}
+                >
+                  <View style={[styles.sourceIconWrap, { backgroundColor: '#EFF6FF' }]}>
+                    <Feather name="camera" size={20} color={Colors.primary} />
+                  </View>
+                  <Text style={[styles.sourceText, isDarkMode && { color: Colors.dark.text }]}>Take Photo</Text>
+                </Pressable>
+
+                <View style={styles.sourceDivider} />
+
+                <Pressable 
+                  style={[styles.sourceBtn, isDarkMode && { backgroundColor: Colors.dark.surfaceElevated }]} 
+                  onPress={() => handlePickPhoto('gallery')}
+                >
+                  <View style={[styles.sourceIconWrap, { backgroundColor: '#F0F9FF' }]}>
+                    <Feather name="image" size={20} color="#0EA5E9" />
+                  </View>
+                  <Text style={[styles.sourceText, isDarkMode && { color: Colors.dark.text }]}>Gallery</Text>
                 </Pressable>
               </View>
-            ) : (
-              <View style={[styles.emptyPhoto, isDarkMode && { backgroundColor: '#1E293B30', borderColor: Colors.dark.border }]}>
-                <View style={[styles.cameraIcon, isDarkMode && { backgroundColor: Colors.dark.surface }]}>
-                  <Feather name="camera" size={28} color={isDarkMode ? Colors.dark.textMuted : "#9CA3AF"} />
-                </View>
-                <Text style={[styles.photoTitle, isDarkMode && { color: Colors.dark.text }]}>Attach Photo Evidence</Text>
-                <Text style={[styles.photoSub, isDarkMode && { color: Colors.dark.textMuted }]}>Help us identify the issue visually</Text>
-              </View>
-            )}
-          </View>
-        </Pressable>
+            </View>
+          )}
+        </View>
 
         {/* Site Selection (if multiple) */}
         {sites.length > 1 && !params.siteId && (
@@ -351,43 +378,35 @@ export default function NewComplaintScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.bg },
-  navbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 32, paddingBottom: 20 },
-  navBtn: { 
-    width: 48, height: 48, borderRadius: 24, backgroundColor: '#F3F4F6', 
-    justifyContent: "center", alignItems: "center",
-  },
-  navTitle: { fontSize: 24, fontFamily: "Inter_900Black", color: '#111827' },
   scroll: { flex: 1 },
   container: { paddingHorizontal: 24, paddingTop: 10, gap: 32 },
   
   photoCard: { height: 200, borderRadius: 40, backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.05, shadowRadius: 30, elevation: 4 },
   emptyPhoto: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB', gap: 12, borderStyle: 'dashed', borderWidth: 2, borderColor: '#E5E7EB', borderRadius: 40 },
-  cameraIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
   photoTitle: { fontSize: 18, fontFamily: 'Inter_900Black', color: '#111827' },
   photoSub: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#9CA3AF' },
   previewContainer: { flex: 1, borderRadius: 40, overflow: 'hidden' },
   preview: { width: '100%', height: '100%' },
-  removeBtn: { position: 'absolute', top: 16, right: 16, backgroundColor: 'rgba(17, 24, 39, 0.6)', width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center' },
+  removeBtn: { position: 'absolute', top: 16, right: 16, backgroundColor: 'rgba(11, 15, 25, 0.7)', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
   
   field: { gap: 16 },
   label: { fontSize: 12, fontFamily: 'Inter_800ExtraBold', color: '#9CA3AF', letterSpacing: 1.5, marginLeft: 8 },
   
   chipScroll: { marginHorizontal: -24, paddingHorizontal: 24 },
-  chip: { paddingHorizontal: 20, paddingVertical: 14, borderRadius: 100, backgroundColor: 'white', marginRight: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  chipActive: { backgroundColor: '#111827' },
+  chip: { paddingHorizontal: 20, paddingVertical: 14, borderRadius: 100, backgroundColor: 'white', marginRight: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: '#F1F5F9' },
+  chipActive: { backgroundColor: '#111827', borderColor: '#111827' },
   chipText: { fontSize: 14, fontFamily: "Inter_700Bold", color: '#4B5563' },
   chipTextActive: { color: 'white' },
   
   catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  catChip: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 100, backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  catChipActive: { backgroundColor: '#111827' },
+  catChip: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 100, backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: '#F1F5F9' },
+  catChipActive: { backgroundColor: '#111827', borderColor: '#111827' },
   catText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#111827' },
   catTextActive: { color: 'white' },
   
   subChip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 100, backgroundColor: '#F3F4F6', borderWidth: 1.5, borderColor: 'transparent' },
-  subChipActive: { backgroundColor: 'white', borderColor: '#111827' },
+  subChipActive: { backgroundColor: '#111827', borderColor: '#111827' },
   subText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#4B5563' },
-  subTextActive: { color: '#111827', fontFamily: 'Inter_800ExtraBold' },
   
   textArea: { backgroundColor: '#F3F4F6', borderRadius: 32, padding: 24, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#111827', height: 160, borderWidth: 1, borderColor: 'rgba(0,0,0,0.02)' },
   
@@ -396,7 +415,7 @@ const styles = StyleSheet.create({
   pDot: { width: 10, height: 10, borderRadius: 5 },
   pText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#4B5563' },
   
-  summaryCard: { padding: 24, borderRadius: 32, backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.04, shadowRadius: 30, elevation: 4 },
+  summaryCard: { padding: 24, borderRadius: 32, backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.04, shadowRadius: 30, elevation: 4, borderWidth: 1, borderColor: '#F1F5F9' },
   summaryInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   summaryLabel: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#6B7280', flex: 1 },
   summaryValue: { fontSize: 15, fontFamily: 'Inter_800ExtraBold', color: '#111827' },
@@ -405,4 +424,43 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#EF4444' },
   
   submitBtn: { height: 64, borderRadius: 100 },
+  photoSourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20
+  },
+  sourceBtn: {
+    flex: 1,
+    height: 90,
+    backgroundColor: 'white',
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9'
+  },
+  sourceIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sourceText: {
+    fontSize: 13,
+    fontFamily: 'Inter_800ExtraBold',
+    color: '#1E293B'
+  },
+  sourceDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#E2E8F0'
+  }
 });

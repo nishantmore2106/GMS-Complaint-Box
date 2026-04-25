@@ -25,6 +25,9 @@ import { SoftCard } from "@/components/SoftCard";
 import { SoftButton } from "@/components/SoftButton";
 import { SoftInput } from "@/components/SoftInput";
 import { useTranslation } from "react-i18next";
+import { PremiumRefreshVisuals } from "@/components/PremiumRefreshVisuals";
+import Animated, { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
+import { RefreshControl } from "react-native";
 
 function MenuItem({
   icon,
@@ -60,7 +63,7 @@ function MenuItem({
 export default function ProfileScreen() {
   const { 
     currentUser, logout, deleteAccount, updateUser, getCompanyById, companies, users, sites, complaints, profileImage, setProfileImage,
-    isDarkMode, setIsDarkMode, notificationsEnabled, setNotificationsEnabled, reportAppIssue, systemSettings
+    isDarkMode, setIsDarkMode, notificationsEnabled, setNotificationsEnabled, reportAppIssue, systemSettings, refreshData
   } = useApp();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -76,6 +79,22 @@ export default function ProfileScreen() {
   const [issueTitle, setIssueTitle] = useState("");
   const [issueDesc, setIssueDesc] = useState("");
   const [isReporting, setIsReporting] = useState(false);
+  const [isAboutVisible, setIsAboutVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const scrollY = useSharedValue(0);
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await refreshData();
+    setRefreshing(false);
+  };
 
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -238,12 +257,24 @@ export default function ProfileScreen() {
 
   return (
     <View style={[styles.root, isDarkMode && styles.darkBg]}>
-      <ScrollView
+      <PremiumRefreshVisuals scrollY={scrollY} refreshing={refreshing} isDarkMode={isDarkMode} />
+      
+      <Animated.ScrollView
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
         contentContainerStyle={[
           styles.scroll,
           { paddingTop: Platform.OS === "web" ? insets.top + 40 : insets.top + 20, paddingBottom: 150 },
         ]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor="transparent"
+            colors={["transparent"]}
+          />
+        }
       >
         <View style={styles.headerRow}>
           <Text style={[styles.title, isDarkMode && styles.darkText]}>{t('account', 'Account')}</Text>
@@ -345,6 +376,19 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* App Overview Section */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, isDarkMode && styles.darkTextMuted]}>{t('app_guide', 'PLATFORM GUIDE')}</Text>
+          <View style={[styles.menuCard, isDarkMode && styles.darkCard]}>
+            <MenuItem 
+              icon="info" 
+              label={t('about_gms', "About GMS Platform")} 
+              value="Version 2.4.1" 
+              onPress={() => setIsAboutVisible(true)} 
+            />
+          </View>
+        </View>
+
         {/* Actions Table */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, isDarkMode && styles.darkTextMuted]}>{t('advanced', 'ADVANCED')}</Text>
@@ -363,7 +407,7 @@ export default function ProfileScreen() {
           <Text style={[styles.footerBranding, isDarkMode && styles.darkTextMuted]}>GMS • COMPLAINT BOX</Text>
           <Text style={[styles.footerVersion, isDarkMode && { color: Colors.dark.textMuted, opacity: 0.8 }]}>V2.4.1 RELEASE</Text>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
       {/* Edit Profile Overlay */}
       <Modal visible={isEditModalVisible} animationType="fade" transparent>
@@ -459,38 +503,48 @@ export default function ProfileScreen() {
             
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.termsContent}>
               <View style={styles.termsSection}>
-                <View style={styles.termsIconBox}>
-                  <Feather name="shield" size={24} color={Colors.primary} />
+                <View style={[styles.termsIconBox, { backgroundColor: '#EEF2FF' }]}>
+                  <Feather name="eye" size={24} color="#4F46E5" />
                 </View>
-                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Data Security</Text>
+                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Operational Transparency</Text>
                 <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.7 }]}>
-                  We use industry-standard encryption and restrictive RLS policies to ensure your company's data remains isolated and secure. Your information is never shared with third parties.
+                  Clients benefit from 100% visibility. Real-time status tracking and evidence-backed resolutions (photo uploads) ensure that every reported issue is addressed with verifiable proof of work.
                 </Text>
               </View>
 
               <View style={styles.termsSection}>
                 <View style={[styles.termsIconBox, { backgroundColor: '#F0FDF4' }]}>
-                  <Feather name="user-check" size={24} color="#10B981" />
+                  <Feather name="map-pin" size={24} color="#10B981" />
                 </View>
-                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Access Control</Text>
-                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.6 }]}>
-                  Your account access is role-based. Clients can only see their assigned sites and reports. Supervisors manage assigned field operations. Founders maintain full oversight.
+                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Data Integrity & Geofencing</Text>
+                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.7 }]}>
+                  Our advanced geofencing ensures that reports are only filed when personnel are physically present at the site. This protects clients from fraudulent reporting and provides GMS with high-accuracy operational data.
+                </Text>
+              </View>
+
+              <View style={styles.termsSection}>
+                <View style={[styles.termsIconBox, { backgroundColor: '#FFF7ED' }]}>
+                  <Feather name="shield" size={24} color="#EA580C" />
+                </View>
+                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Mutual Accountability</Text>
+                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.7 }]}>
+                  Every interaction is timestamped and logged, creating an immutable audit trail. This protects the client's interests by ensuring service delivery and protects GMS personnel by verifying their professional actions.
                 </Text>
               </View>
 
               <View style={styles.termsSection}>
                 <View style={[styles.termsIconBox, { backgroundColor: '#EFF6FF' }]}>
-                  <Feather name="file-text" size={24} color="#3B82F6" />
+                  <Feather name="trending-up" size={24} color="#3B82F6" />
                 </View>
-                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Reporting Policy</Text>
-                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.6 }]}>
-                  All reports filed through GMS Complaint Box are logged with timestamps and audit trails for transparency and accountability.
+                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Service Level Excellence</Text>
+                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.7 }]}>
+                  Automated performance analytics allow GMS to optimize response times and maintain industry-leading service quality, ensuring that your facilities remain in peak operational condition.
                 </Text>
               </View>
 
               <View style={styles.footerBrandingBox}>
-                <Text style={styles.footerBranding}>GMS • TRUST CENTER</Text>
-                <Text style={styles.footerVersion}>Last updated: March 2026</Text>
+                <Text style={styles.footerBranding}>GMS • MUTUAL TRUST CENTER</Text>
+                <Text style={styles.footerVersion}>Platform Terms V2.4 • Updated April 2026</Text>
               </View>
             </ScrollView>
 
@@ -543,6 +597,72 @@ export default function ProfileScreen() {
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>
+      </Modal>
+      {/* About Platform Modal */}
+      <Modal visible={isAboutVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.termsCard, isDarkMode && styles.darkCard]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalHeading, isDarkMode && styles.darkText]}>Platform Intelligence</Text>
+              <Pressable onPress={() => setIsAboutVisible(false)} style={[styles.closeModal, isDarkMode && { backgroundColor: '#334155' }]}>
+                <Feather name="x" size={20} color={isDarkMode ? 'white' : Colors.textMuted} />
+              </Pressable>
+            </View>
+            
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.termsContent}>
+              <View style={styles.termsSection}>
+                <View style={[styles.termsIconBox, { backgroundColor: '#EEF2FF' }]}>
+                  <Feather name="command" size={24} color="#4F46E5" />
+                </View>
+                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Founder: Strategic Hub</Text>
+                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.7 }]}>
+                  Founders maintain full organizational oversight. Features include global site management, real-time personnel tracking, strategic resource allocation, and deep performance analytics across all facilities.
+                </Text>
+              </View>
+
+              <View style={styles.termsSection}>
+                <View style={[styles.termsIconBox, { backgroundColor: '#FFF7ED' }]}>
+                  <Feather name="zap" size={24} color="#EA580C" />
+                </View>
+                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Supervisor: Operational Center</Text>
+                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.7 }]}>
+                  Supervisors manage active field operations. Features include instant zone-based notifications, standardized step-by-step resolution workflows, evidence collection (photo upload), and automated resolution reporting.
+                </Text>
+              </View>
+
+              <View style={styles.termsSection}>
+                <View style={[styles.termsIconBox, { backgroundColor: '#F0FDF4' }]}>
+                  <Feather name="monitor" size={24} color="#16A34A" />
+                </View>
+                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Client: Status Room</Text>
+                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.7 }]}>
+                  Clients monitor their specific site health. Features include transparent real-time tracking of all reported issues, direct feedback loops with the field team, and historical performance visibility for their assigned site.
+                </Text>
+              </View>
+
+              <View style={styles.termsSection}>
+                <View style={[styles.termsIconBox, { backgroundColor: '#FDF2F8' }]}>
+                  <Feather name="cpu" size={24} color="#DB2777" />
+                </View>
+                <Text style={[styles.termsTitle, isDarkMode && { color: 'white' }]}>Platform Architecture</Text>
+                <Text style={[styles.termsText, isDarkMode && { color: 'white', opacity: 0.7 }]}>
+                  GMS Platform utilizes advanced geofencing to ensure data integrity, real-time synchronization through a premium brand-loader interaction, and end-to-end encrypted communication for all operational data.
+                </Text>
+              </View>
+
+              <View style={styles.footerBrandingBox}>
+                <Text style={styles.footerBranding}>GMS • COMPLAINT BOX PLATFORM</Text>
+                <Text style={styles.footerVersion}>V2.4.1 PRODUCTION BUILD</Text>
+              </View>
+            </ScrollView>
+
+            <SoftButton 
+              title="Close Guide" 
+              onPress={() => setIsAboutVisible(false)}
+              style={{ marginTop: 20 }}
+            />
+          </View>
+        </View>
       </Modal>
     </View>
   );
