@@ -21,7 +21,8 @@ import {
   Alert,
   Dimensions,
   ActivityIndicator,
-  TextInput
+  TextInput,
+  Image
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
@@ -282,63 +283,149 @@ export default function RootEntry() {
   if (Platform.OS === 'web') {
     const activeBg = isDarkMode ? Colors.dark.bg : '#F8FAFC';
 
-    // ── EFFECT: AUTO-REDIRECT ──
-    useEffect(() => {
-      const runRedirect = async () => {
-        if (locating) return;
-        
-        // 1. Check for active session first
-        const savedId = await AsyncStorage.getItem(APP_CONFIG.AUTH.SESSION_RECOVERY_KEY);
-        if (savedId) {
-          const { data } = await supabase.from('complaints').select('status').eq('id', savedId).single();
-          if (data && data.status !== 'resolved') {
-            router.replace(`/public/tracker/${savedId}`);
-            return;
-          }
-        }
-
-        // 2. If no active session, but site detected
-        if (detectedSite) {
-          router.replace(`/public/scan/${detectedSite.id}${test === 'true' ? '?test=true' : ''}`);
-        }
-      };
-      runRedirect();
-    }, [locating, detectedSite, test]);
+    if (submitted) {
+      return (
+        <View style={[styles.root, { backgroundColor: activeBg, justifyContent: 'center', alignItems: 'center' }]}>
+          <Animated.View entering={FadeIn.duration(800)} style={{ alignItems: 'center', gap: 24, padding: 40 }}>
+            <View style={styles.successIconLarge}>
+               <Feather name="check" size={40} color="white" />
+            </View>
+            <Text style={styles.successTitle}>Alert Sent!</Text>
+            <Text style={styles.successSub}>
+              Your report has been dispatched to {detectedSite?.name}. A supervisor will assist shortly.
+            </Text>
+            <View style={{ gap: 12, marginTop: 24, width: '100%', alignItems: 'center' }}>
+              <SoftButton 
+                title="Track Live Progress" 
+                onPress={() => activeComplaintId && router.push(`/public/tracker/${activeComplaintId}`)} 
+                style={{ width: 260, height: 56 }} 
+              />
+              <SoftButton 
+                title="Raise Another Alert" 
+                onPress={() => setSubmitted(false)} 
+                variant="outline" 
+                style={{ width: 260, height: 56 }} 
+              />
+            </View>
+          </Animated.View>
+        </View>
+      );
+    }
 
     return (
-      <View style={[styles.root, { backgroundColor: activeBg, justifyContent: 'center', alignItems: 'center' }]}>
-        <Animated.View entering={FadeIn.duration(800)} style={{ alignItems: 'center', gap: 24, padding: 40 }}>
-           <View style={styles.logoContainer}>
-              <Feather name="box" size={42} color="#1E3A8A" />
-           </View>
-           
-           {locating ? (
-             <>
-               <ActivityIndicator size="large" color="#1E3A8A" />
-               <Text style={styles.statusText}>Detecting nearby GMS Facility...</Text>
-             </>
-           ) : locationError ? (
-             <>
-               <View style={styles.errorIconCircle}>
-                 <Feather name="map-pin" size={32} color="#EF4444" />
-               </View>
-               <Text style={styles.errorTitle}>Facility Not Found</Text>
-               <Text style={styles.errorSub}>{locationError}</Text>
-               <SoftButton title="Scan QR Code Instead" onPress={() => {}} variant="outline" style={{ marginTop: 24, width: 240 }} />
-               <Pressable onPress={() => autoDetectSite(true)} style={{ marginTop: 20 }}>
-                  <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#64748B', textDecorationLine: 'underline' }}>Testing? Force Mock Site</Text>
-               </Pressable>
-             </>
-           ) : (
-             <>
-               <ActivityIndicator size="small" color="#1E3A8A" />
-               <Text style={styles.statusText}>Synchronizing with {detectedSite?.name || 'Portal'}...</Text>
-             </>
-           )}
-        </Animated.View>
+      <View style={[styles.root, { backgroundColor: activeBg }]}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
+          <View style={[styles.webHeader, { paddingTop: insets.top + 40 }]}>
+            <View style={styles.logoCircleSmall}>
+               <Feather name="box" size={24} color="#1E3A8A" />
+            </View>
+            <Text style={styles.webTitle}>GMS Public Portal</Text>
+          </View>
+
+          <View style={styles.formSection}>
+            {locating ? (
+              <View style={styles.centerSection}>
+                <ActivityIndicator size="large" color="#1E3A8A" />
+                <Text style={styles.statusText}>Detecting Facility...</Text>
+              </View>
+            ) : locationError ? (
+              <View style={styles.centerSection}>
+                 <View style={styles.errorIconCircle}>
+                   <Feather name="map-pin" size={32} color="#EF4444" />
+                 </View>
+                 <Text style={styles.errorTitle}>Facility Not Found</Text>
+                 <Text style={styles.errorSub}>{locationError}</Text>
+                 <SoftButton title="Try Again" onPress={() => autoDetectSite(false)} variant="outline" style={{ marginTop: 24, width: 220 }} />
+                 <Pressable onPress={() => autoDetectSite(true)} style={{ marginTop: 20 }}>
+                    <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#64748B', textDecorationLine: 'underline' }}>Testing? Use Mock Facility</Text>
+                 </Pressable>
+              </View>
+            ) : detectedSite ? (
+              <Animated.View entering={FadeIn.duration(600)} style={{ gap: 24 }}>
+                <View style={styles.siteBanner}>
+                  <Text style={styles.atText}>Current Location</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <Feather name="map-pin" size={16} color="#1E3A8A" />
+                    <Text style={styles.siteName}>{detectedSite.name}</Text>
+                  </View>
+                </View>
+
+                <SoftCard style={{ gap: 20, padding: 24 }}>
+                  <Text style={styles.sectionLabel}>WHAT'S THE ISSUE?</Text>
+                  <View style={styles.catGrid}>
+                    <Pressable 
+                      style={[styles.catChip, category === 'Cleaning' && styles.catChipActive]}
+                      onPress={() => setCategory('Cleaning')}
+                    >
+                      <Feather name="wind" size={16} color={category === 'Cleaning' ? 'white' : '#64748B'} />
+                      <Text style={[styles.catChipText, category === 'Cleaning' && { color: 'white' }]}>Cleaning</Text>
+                    </Pressable>
+                    <Pressable 
+                      style={[styles.catChip, category === 'Misbehave' && styles.catChipActive]}
+                      onPress={() => setCategory('Misbehave')}
+                    >
+                      <Feather name="shield" size={16} color={category === 'Misbehave' ? 'white' : '#64748B'} />
+                      <Text style={[styles.catChipText, category === 'Misbehave' && { color: 'white' }]}>Behavior</Text>
+                    </Pressable>
+                  </View>
+
+                  <Text style={styles.sectionLabel}>DETAILS</Text>
+                  <SoftInput 
+                    placeholder="Describe the problem (e.g. water spill, noise...)" 
+                    value={description} 
+                    onChangeText={setDescription}
+                    multiline
+                    style={{ height: 100, paddingTop: 12 }}
+                  />
+
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sectionLabel}>FLOOR</Text>
+                      <SoftInput placeholder="Lobby, 4, etc." value={floor} onChangeText={setFloor} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sectionLabel}>ROOM/AREA</Text>
+                      <SoftInput placeholder="Washroom, 402..." value={room} onChangeText={setRoom} />
+                    </View>
+                  </View>
+
+                  <Text style={styles.sectionLabel}>ATTACH PHOTO (OPTIONAL)</Text>
+                  <Pressable onPress={pickImage} style={styles.imagePickerBtnSmall}>
+                    {image ? (
+                      <Image source={{ uri: image }} style={{ width: '100%', height: '100%', borderRadius: 12 }} />
+                    ) : (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Feather name="camera" size={20} color="#1E3A8A" />
+                        <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#1E3A8A' }}>Take/Upload Photo</Text>
+                      </View>
+                    )}
+                  </Pressable>
+
+                  <SoftButton 
+                    title={isSubmitting ? "Dispatching Alert..." : "Submit Complaint"} 
+                    onPress={handleSubmit} 
+                    loading={isSubmitting}
+                    style={{ marginTop: 12, height: 56 }}
+                  />
+                  
+                  {activeComplaintId && (
+                    <Pressable 
+                      onPress={() => router.push(`/public/tracker/${activeComplaintId}`)}
+                      style={{ alignSelf: 'center', marginTop: 12 }}
+                    >
+                      <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#1E3A8A', textDecorationLine: 'underline' }}>
+                        You have an active tracker. View Status 
+                      </Text>
+                    </Pressable>
+                  )}
+                </SoftCard>
+              </Animated.View>
+            ) : null}
+          </View>
+        </ScrollView>
         
-        <View style={{ position: 'absolute', bottom: 40 }}>
-          <Text style={styles.footerText}>© 2026 GMS Facility Management Service</Text>
+        <View style={{ position: 'absolute', bottom: 20, width: '100%', alignItems: 'center' }}>
+          <Text style={styles.footerText}> 2026 GMS Facility Management Service</Text>
         </View>
       </View>
     );
@@ -448,61 +535,32 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   atText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#64748B', textTransform: 'uppercase', letterSpacing: 1 },
-  siteName: { fontSize: 18, fontFamily: 'Inter_700Bold', color: '#0F172A' },
-  webCard: { 
-    padding: 32, 
-    borderRadius: 16, 
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  formGroup: { marginBottom: 24 },
-  sectionLabel: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#475569', letterSpacing: 1, marginBottom: 4 },
-  stepHint: { fontSize: 13, fontFamily: 'Inter_500Medium', color: '#64748B', marginBottom: 16 },
-  row: { flexDirection: 'row', gap: 16 },
-  catGridBig: { flexDirection: 'row', gap: 16 },
-  catCardBig: { 
+  siteName: { fontSize: 16, fontFamily: 'Inter_700Bold', color: '#1E3A8A' },
+  sectionLabel: { fontSize: 10, fontFamily: 'Inter_800ExtraBold', color: '#64748B', letterSpacing: 1, marginBottom: 8 },
+  catGrid: { flexDirection: 'row', gap: 12 },
+  catChip: { 
     flex: 1, 
-    padding: 24, 
-    borderRadius: 16, 
-    borderWidth: 1, 
-    borderColor: '#E2E8F0', 
+    flexDirection: 'row', 
     alignItems: 'center', 
-    justifyContent: 'center', 
-    backgroundColor: '#F8FAFC' 
-  },
-  catIconWrap: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  catCardActive: { backgroundColor: '#1E3A8A', borderColor: '#1E3A8A', shadowColor: '#1E3A8A', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
-  catCardTextBig: { fontSize: 16, fontFamily: 'Inter_700Bold', color: '#0F172A', marginBottom: 4 },
-  catCardDesc: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#64748B' },
-  textArea: { height: 120, paddingTop: 16, alignItems: 'flex-start', justifyContent: 'flex-start' },
-  actionBtn: { marginTop: 8 },
-  buttonRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
-  progressContainer: { marginBottom: 32 },
-  progressTrack: { width: '100%', height: 6, backgroundColor: '#F1F5F9', borderRadius: 3, overflow: 'hidden', marginBottom: 8 },
-  progressFill: { height: '100%', backgroundColor: '#1E3A8A', borderRadius: 3 },
-  progressText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#94A3B8', textAlign: 'right' },
-  stepContainer: { width: '100%' },
-  webFooter: { marginTop: 60, alignItems: 'center' },
-  imagePickerBtn: {
-    width: '100%',
-    height: 160,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#E2E8F0',
-    borderStyle: 'dashed',
-    overflow: 'hidden',
-    backgroundColor: '#F8FAFC',
     justifyContent: 'center',
-    alignItems: 'center',
+    gap: 8, 
+    paddingVertical: 12, 
+    borderRadius: 12, 
+    backgroundColor: '#F8FAFC', 
+    borderWidth: 1, 
+    borderColor: '#E2E8F0' 
   },
-  pickerPlaceholder: {
+  catChipActive: { backgroundColor: '#1E3A8A', borderColor: '#1E3A8A' },
+  catChipText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#64748B' },
+  imagePickerBtnSmall: { 
+    height: 60, 
+    borderRadius: 12, 
+    borderWidth: 1.5, 
+    borderColor: '#E2E8F0', 
+    borderStyle: 'dashed', 
+    justifyContent: 'center', 
     alignItems: 'center',
-    gap: 12,
+    backgroundColor: '#F8FAFC'
   },
   pickerText: {
     fontSize: 14,
@@ -530,4 +588,5 @@ const styles = StyleSheet.create({
     color: 'white',
   },
 });
+
 
