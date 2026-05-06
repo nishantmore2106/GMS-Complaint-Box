@@ -838,6 +838,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             currentPhase: c.current_phase, phaseHistory: c.phase_history
           };
           setComplaints(prev => [mapped, ...prev]);
+
+          // 🔔 GSD: Trigger local notification for staff
+          if (c.status === 'pending') {
+            NotificationManager.showLocalNotification(
+              "New Complaint Received",
+              `A new issue was reported at ${s?.name || 'Facility'}.`,
+              { type: 'complaint_new', id: c.id }
+            );
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          }
         } else if (payload.eventType === 'UPDATE') {
           const c = payload.new;
           const s = sitesRef.current.find(s => s.id === c.site_id);
@@ -1179,6 +1189,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     await ApiService.updateSite(id, dbUpdates);
     
+    // 🚀 REDIRECTION LOGIC: If a supervisor is being assigned, divert unassigned complaints
+    if (updates.assignedSupervisorId) {
+      console.log(`[AppContext] updateSite: Redirecting unassigned complaints for site=${id} to supervisor=${updates.assignedSupervisorId}`);
+      await supabase
+        .from("complaints")
+        .update({ supervisor_id: updates.assignedSupervisorId })
+        .eq("site_id", id)
+        .is("supervisor_id", null);
+    }
+
     console.log(`[AppContext] updateSite: Success, refreshing...`);
     await fetchData({ forceSync: true });
   }, [fetchData, sites]);
@@ -1541,6 +1561,7 @@ const addComplaint = useCallback(async (complaint: any) => {
 
     await fetchData({ forceSync: true });
     console.log("[addComplaint] Done.");
+    return newComplaint;
   }, [fetchData, users, sites, logSystemEvent]);
 
   const updateComplaint = useCallback(async (id: string, updates: any) => {
@@ -1662,6 +1683,20 @@ const addComplaint = useCallback(async (complaint: any) => {
     if (supervisorId) {
       const siteName = sites.find(s => s.id === siteId)?.name || 'a site';
       await NotificationManager.notifyAssignment(siteId, supervisorId, siteName);
+
+      // 🚀 REDIRECTION LOGIC: Divert all "unassigned" complaints for this site to the new supervisor
+      console.log(`[AppContext] assignSupervisorToSite: Redirecting unassigned complaints for site=${siteId} to supervisor=${supervisorId}`);
+      const { error: redirectError } = await supabase
+        .from("complaints")
+        .update({ supervisor_id: supervisorId })
+        .eq("site_id", siteId)
+        .is("supervisor_id", null);
+
+      if (redirectError) {
+        console.error("[AppContext] Complaint redirection FAILED:", redirectError);
+      } else {
+        console.log("[AppContext] Complaint redirection SUCCESS.");
+      }
     }
 
     await fetchData({ forceSync: true });
@@ -1674,8 +1709,10 @@ const addComplaint = useCallback(async (complaint: any) => {
     // Trigger phase update for granular tracking
     if (supervisorId) {
       await updateComplaintPhase(complaintId, 'assigned');
+    } else {
+      await fetchData({ forceSync: true });
     }
-  }, [updateComplaintPhase]);
+  }, [updateComplaintPhase, fetchData]);
   
   const calculateDistance = useCallback((lat1: number, lon1: number, lat2: number, lon2: number) => {
     return LocationService.getDistance({ latitude: lat1, longitude: lon1 }, { latitude: lat2, longitude: lon2 });
@@ -1799,6 +1836,13 @@ const addComplaint = useCallback(async (complaint: any) => {
       // 2. Assign supervisor to site
       await ApiService.updateSite(request.siteId, { assigned_supervisor_id: supervisorId });
       
+      // 🚀 REDIRECTION LOGIC: Divert unassigned complaints
+      await supabase
+        .from("complaints")
+        .update({ supervisor_id: supervisorId })
+        .eq("site_id", request.siteId)
+        .is("supervisor_id", null);
+
       // 2. Update request status
       await ApiService.updateSupervisorRequest(requestId, {
         status: 'approved',

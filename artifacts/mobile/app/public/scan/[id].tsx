@@ -1,639 +1,328 @@
-import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as ImagePicker from 'expo-image-picker';
-import { HapticsService } from "@/utils/haptics";
-import * as Location from "expo-location";
-import { LinearGradient } from "expo-linear-gradient";
-import Animated, { 
-  FadeIn, 
-  FadeInDown, 
-  FadeInUp, 
-  ZoomIn, 
-  SlideInRight,
-  SlideOutLeft,
-  Layout,
-  useSharedValue, 
-  useAnimatedStyle, 
-  withRepeat, 
-  withTiming, 
-  Easing 
-} from "react-native-reanimated";
-import { useLocalSearchParams } from "expo-router";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useState, useRef } from 'react';
 import {
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  ActivityIndicator,
-  Pressable,
-  Dimensions
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Colors } from "@/constants/colors";
-import { SoftCard } from "@/components/SoftCard";
-import { SoftButton } from "@/components/SoftButton";
-import { SoftInput } from "@/components/SoftInput";
-import { supabase } from "@/lib/supabase";
-import { NotificationManager } from "@/services/notification.manager";
-import { LocationService } from "@/services/location.service";
-import { PhaseTracker } from "@/components/PhaseTracker";
-import { useApp } from "@/context/AppContext";
-import * as Haptics from "expo-haptics";
-import * as FileSystem from 'expo-file-system';
-import { APP_CONFIG } from "@/constants/config";
+  View, Text, StyleSheet, Pressable, Alert,
+  ActivityIndicator, Animated, Easing,
+} from 'react-native';
+import { useLocalSearchParams, router } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { supabase } from '@/lib/supabase';
+import { Colors } from '@/constants/colors';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const { width } = Dimensions.get('window');
+// ─────────────────────────────────────────────────────────────
+// PUBLIC PORTAL MAIN PAGE
+// The user scans a QR code and lands here.
+// One tap raises the complaint and redirects to the Waiting page.
+// 15-minute rate limit is enforced between submissions.
+// ─────────────────────────────────────────────────────────────
 
-const PulsingRing = ({ isChecking }: { isChecking: boolean }) => {
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(0);
+const RATE_LIMIT_MINUTES = 15;
 
-  useEffect(() => {
-    if (isChecking) {
-      opacity.value = 0.6;
-      scale.value = withRepeat(withTiming(1.6, { duration: 1200, easing: Easing.out(Easing.ease) }), -1, false);
-      opacity.value = withRepeat(withTiming(0, { duration: 1200, easing: Easing.out(Easing.ease) }), -1, false);
-    } else {
-      scale.value = withTiming(1);
-      opacity.value = withTiming(0);
-    }
-  }, [isChecking]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-    position: 'absolute',
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: Colors.primary,
-  }));
-
-  return (
-    <View style={styles.pulseContainer}>
-      <Animated.View style={animatedStyle} />
-      <View style={styles.pulseCenter}>
-        <Feather name={isChecking ? "loader" : "navigation"} size={28} color="white" />
-      </View>
-    </View>
-  );
-};
-
-export default function AnonymousComplaintScreen() {
-  const { id, test } = useLocalSearchParams<{ id: string, test?: string }>();
+export default function PublicPortalMainPage() {
+  const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  
-  const [site, setSite] = useState<any>(null);
-  const [loadingSite, setLoadingSite] = useState(true);
-  const [locationPerm, setLocationPerm] = useState<boolean | null>(null);
-  const [isInside, setIsInside] = useState<boolean | null>(null);
-  const [checkingLocation, setCheckingLocation] = useState(false);
-  const [calibrationStep, setCalibrationStep] = useState<string>("");
-  const [distanceAway, setDistanceAway] = useState<number | null>(null);
-  
-  const [step, setStep] = useState(1);
-  const totalSteps = 4;
 
-  const { currentUser } = useApp();
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'founder';
+  const [site, setSite]                           = useState<any>(null);
+  const [siteError, setSiteError]                 = useState<string | false>(false);
+  const [loading, setLoading]                     = useState(true);
+  const [submitting, setSubmitting]               = useState(false);
+  const [portalSession, setPortalSession]         = useState('');
+  const [rateLimitLeft, setRateLimitLeft]         = useState<number | null>(null); // minutes remaining
+  const [activeComplaintId, setActiveComplaintId] = useState<string | null>(null);
+  const [lastSubmissionTime, setLastSubmissionTime] = useState<number | null>(null);
 
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [floor, setFloor] = useState("");
-  const [room, setRoom] = useState("");
-  const [category, setCategory] = useState<"Cleaning" | "Misbehave" | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [image, setImage] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
-  const [activeComplaint, setActiveComplaint] = useState<any>(null);
-  const [recoveredId, setRecoveredId] = useState<string | null>(null);
-  const [checkingActive, setCheckingActive] = useState(true);
-  const [correctionNote, setCorrectionNote] = useState<string | null>(null);
+  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.92)).current;
 
-  const loadActiveRecord = async (activeId: string) => {
-    try {
-      console.log("[Portal] Loading active record:", activeId);
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, friction: 7, useNativeDriver: true }),
+    ]).start();
+  }, []);
+
+  useEffect(() => {
+    if (!id || !loading) return;
+    (async () => {
+      // Load site
       const { data, error } = await supabase
-        .from('complaints')
+        .from('sites')
         .select('*')
-        .eq('id', activeId)
-        .single();
-      
-      if (data) {
-        setActiveComplaint(data);
-        return data;
-      }
-    } catch (err) {
-      console.error("[Portal] loadActiveRecord error:", err);
-    }
-    return null;
-  };
+        .eq('id', id)
+        .maybeSingle();
 
-  // Persistence and Real-time listener
-  useEffect(() => {
-    async function checkActive() {
-      if (!id) return;
-      try {
-        setCheckingActive(true);
-        let activeId = await AsyncStorage.getItem(`GMS_ACTIVE_COMP_SITE_${id}`);
-        
-        if (!activeId) {
-          console.log("[Portal] Searching for active reports at site:", id);
-          
-          let query = supabase
-            .from('complaints')
-            .select('id')
-            .eq('site_id', id)
-            .neq('status', 'resolved');
-          
-          if (currentUser?.id) {
-             query = query.or(`is_anonymous.eq.true,user_id.eq.${currentUser.id}`);
-          } else {
-             query = query.or(`is_anonymous.eq.true,is_anonymous.is.null`);
-          }
-
-          const { data: recovered } = await query
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (recovered) {
-            console.log("[Portal] Recovered session from DB:", recovered.id);
-            activeId = recovered.id;
-          }
-        }
-        
-        if (activeId) {
-          console.log("[Portal] Active session detected:", activeId);
-          setRecoveredId(activeId); 
-          
-          if (!submitted) {
-            const hasRequestedNew = await AsyncStorage.getItem(`GMS_NEW_FLOW_FLAG_${id}`);
-            if (!hasRequestedNew) {
-               await loadActiveRecord(activeId);
-            }
-          }
-        }
-
-        // Global Session Check (from index.tsx)
-        const globalActiveId = await AsyncStorage.getItem(APP_CONFIG.AUTH.SESSION_RECOVERY_KEY);
-        if (globalActiveId && globalActiveId !== activeId) {
-           console.log("[Portal] Global session detected, checking status...");
-           const { data } = await supabase.from('complaints').select('status, site_id').eq('id', globalActiveId).single();
-           if (data && data.status !== 'resolved' && data.site_id === id) {
-              setRecoveredId(globalActiveId);
-              const hasRequestedNew = await AsyncStorage.getItem(`GMS_NEW_FLOW_FLAG_${id}`);
-              if (!hasRequestedNew) {
-                 await loadActiveRecord(globalActiveId);
-              }
-           }
-        }
-      } catch (err) {
-        console.error("[Portal] DB Check Error:", err);
-      } finally {
-        setCheckingActive(false);
-      }
-    }
-
-    checkActive();
-  }, [id, submitted, currentUser?.id]);
-
-  // Handle Real-time Subscription separately
-  useEffect(() => {
-    let subscription: any;
-    if (activeComplaint?.id) {
-       console.log("[Portal] Subscribing to real-time updates for:", activeComplaint.id);
-       subscription = supabase
-         .channel(`complaint-tracker-${activeComplaint.id}`)
-         .on('postgres_changes', { 
-            event: '*', 
-            schema: 'public', 
-            table: 'complaints', 
-            filter: `id=eq.${activeComplaint.id}` 
-         }, (payload) => {
-            console.log("[Portal] Live Record Refresh:", payload.new.current_phase || payload.new.status);
-            setActiveComplaint(prev => ({ ...prev, ...payload.new }));
-         })
-         .subscribe();
-    }
-    return () => {
-      if (subscription) supabase.removeChannel(subscription);
-    };
-  }, [activeComplaint?.id]);
-
-  useEffect(() => {
-    async function loadSite() {
-      if (!id) return;
-      const { data, error } = await supabase.from('sites').select('*').eq('id', id).single();
-      if (data) setSite(data);
-      setLoadingSite(false);
-    }
-    loadSite();
-  }, [id]);
-
-  const verifyLocation = async () => {
-    setCheckingLocation(true);
-    setCalibrationStep("Calibrating GPS...");
-    setCorrectionNote(null);
-    await HapticsService.impact('medium');
-
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationPerm(status === 'granted');
-      
-      if (status !== 'granted') {
-        setCheckingLocation(false);
+      if (error) {
+        // Network / RLS / server error — let user retry, don't blame QR code
+        console.error('[Portal] Site load error:', error.message);
+        setSiteError('network');
+        setLoading(false);
         return;
       }
-
-      setCalibrationStep("Locking Coordinates...");
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const { latitude, longitude } = location.coords;
-
-      if (test === 'true' || isAdmin) {
-        setCalibrationStep(isAdmin ? "Admin Override..." : "Bypassing for Dev...");
-        setTimeout(() => {
-          setIsInside(true);
-          setCheckingLocation(false);
-          HapticsService.success();
-        }, 800);
+      if (!data) {
+        // Query succeeded but no row matched → genuinely invalid QR
+        setSiteError('invalid');
+        setLoading(false);
         return;
       }
+      setSite(data);
 
-      setCalibrationStep("Verifying Proximity...");
-      if (site?.latitude && site?.longitude) {
-        const distance = LocationService.getDistance({ latitude, longitude }, { latitude: site.latitude, longitude: site.longitude });
-        setDistanceAway(Math.round(distance));
-        const radius = site.radius_meters || APP_CONFIG.GEOFENCE.DEFAULT_RADIUS; 
+      // Check for active complaint
+      const activeId = await AsyncStorage.getItem(`GMS_ACTIVE_COMP_SITE_${id}`);
+      if (activeId) {
+        setActiveComplaintId(activeId);
+      }
 
-        if (distance <= radius) {
-          setIsInside(true);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } else {
-          setCalibrationStep("Searching nearby...");
-          const { data: allSites } = await supabase.from('sites').select('*');
-          if (allSites) {
-             const nearest = LocationService.findNearestSite({ latitude, longitude }, allSites, radius);
-             if (nearest && nearest.id !== id) {
-                setSite(nearest);
-                setIsInside(true);
-                setCorrectionNote(`Location adjusted to ${nearest.name} (nearest site).`);
-                HapticsService.success();
-             } else {
-                setIsInside(false);
-                HapticsService.error();
-             }
-          } else {
-             setIsInside(false);
-             HapticsService.error();
-          }
+      // Session ID
+      let sess = await AsyncStorage.getItem('GMS_PORTAL_SESSION_ID');
+      if (!sess) {
+        sess = `GMS-${Math.random().toString(36).substr(2, 5).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+        await AsyncStorage.setItem('GMS_PORTAL_SESSION_ID', sess);
+      }
+      setPortalSession(sess);
+
+      // Rate limit
+      const lastTs = await AsyncStorage.getItem(`GMS_LAST_SUB_${id}`);
+      if (lastTs) {
+        const ts      = parseInt(lastTs);
+        const elapsed = (Date.now() - ts) / 1000 / 60;
+        setLastSubmissionTime(ts);
+        if (elapsed < RATE_LIMIT_MINUTES) {
+          setRateLimitLeft(Math.ceil(RATE_LIMIT_MINUTES - elapsed));
         }
-      } else {
-        setIsInside(true);
       }
-      setCheckingLocation(false);
-    } catch (err) {
-      console.error("[Portal/Verify] Error:", err);
-      Alert.alert("GPS Error", "Ensure location is enabled.");
-      setCheckingLocation(false);
-    }
-  };
 
-  const pickImage = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') return;
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.5 });
-    if (!result.canceled) {
-      setImage(result.assets[0].uri);
-      HapticsService.impact('light');
-    }
-  };
+      setLoading(false);
+    })();
+  }, [id, loading]);
 
-  const uploadImage = async (uri: string) => {
-    try {
-      console.log("[Portal] Uploading image via FileSystem...");
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const byteCharacters = atob(base64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'image/jpeg' });
-      
-      const filePath = `public/${id}/pub_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-      const { data, error } = await supabase.storage
-        .from(APP_CONFIG.STORAGE.BUCKET_NAME)
-        .upload(filePath, blob, { contentType: 'image/jpeg' });
-        
-      if (error) throw error;
-      const { data: { publicUrl } } = supabase.storage.from(APP_CONFIG.STORAGE.BUCKET_NAME).getPublicUrl(data.path);
-      return publicUrl;
-    } catch (err) {
-      console.error("[Portal] Upload failed, falling back to fetch:", err);
-      // Fallback
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const filePath = `public/${id}/pub_${Date.now()}.jpg`;
-      const { data, error } = await supabase.storage.from(APP_CONFIG.STORAGE.BUCKET_NAME).upload(filePath, blob, { contentType: 'image/jpeg' });
-      if (error) throw error;
-      const { data: { publicUrl } } = supabase.storage.from(APP_CONFIG.STORAGE.BUCKET_NAME).getPublicUrl(data.path);
-      return publicUrl;
-    }
-  };
+  // Countdown tick for rate limit
+  useEffect(() => {
+    if (!rateLimitLeft || rateLimitLeft <= 0) return;
+    const t = setTimeout(() => setRateLimitLeft(r => (r && r > 1 ? r - 1 : null)), 60000);
+    return () => clearTimeout(t);
+  }, [rateLimitLeft]);
 
-  const handleSubmit = async () => {
-    if (!name || !description) {
-      Alert.alert("Required", "Please provide a name and description.");
+  const handleRaiseComplaint = async () => {
+    if (rateLimitLeft) {
+      Alert.alert('Limit Active', `Please wait ${rateLimitLeft} more minute${rateLimitLeft > 1 ? 's' : ''} before raising another complaint.`);
       return;
     }
-    
-    setIsSubmitting(true);
-    try {
-      let uploadedUrl = null;
-      if (image) uploadedUrl = await uploadImage(image);
+    if (!site) { Alert.alert('Error', 'Site not loaded yet. Please wait.'); return; }
 
-      const { data, error } = await supabase.from('complaints').insert([{
-        site_id: id,
-        company_id: site.company_id,
-        client_id: currentUser?.id || site.client_id,
-        supervisor_id: site.assigned_supervisor_id,
-        category: category || 'Cleaning',
-        subcategory: category === 'Cleaning' ? 'Public Area Cleaning' : 'General Issue',
-        description: `${description}\nFloor: ${floor}, Room: ${room}`,
-        before_media_url: uploadedUrl,
-        is_anonymous: !currentUser,
-        anonymous_name: name,
-        floor,
-        room_number: room,
-        status: 'pending',
-        priority: 'medium'
-      }]).select().single();
+    setSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from('complaints')
+        .insert([{
+          site_id:       id,
+          company_id:    site.company_id,
+          category:      'General',
+          description:   'Complaint raised via public portal',
+          status:        'pending',
+          is_anonymous:  true,
+          anonymous_name:'Portal Visitor',
+          priority:      'medium',
+          current_phase: 'reported',
+          session_id:    portalSession,
+          phase_history: [{ phase: 'reported', timestamp: new Date().toISOString() }],
+        }])
+        .select()
+        .single();
 
       if (error) throw error;
+
       await AsyncStorage.setItem(`GMS_ACTIVE_COMP_SITE_${id}`, data.id);
-      await AsyncStorage.setItem(APP_CONFIG.AUTH.SESSION_RECOVERY_KEY, data.id);
-      await AsyncStorage.removeItem(`GMS_NEW_FLOW_FLAG_${id}`); 
-      await NotificationManager.notifyNewComplaint(data, site.name).catch(() => {});
-      await HapticsService.success();
-      setSubmitted(true);
+      await AsyncStorage.setItem(`GMS_LAST_SUB_${id}`, Date.now().toString());
+      router.replace(`/public/waiting/${data.id}`);
     } catch (err: any) {
-      Alert.alert("Submission Failed", err.message);
+      Alert.alert('Failed', err?.message || 'Could not submit. Check your connection.');
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(false);
     }
   };
 
-  if (loadingSite || checkingActive) {
+  // ─────────────────── LOADING ───────────────────
+  if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading facility...</Text>
       </View>
     );
   }
 
-  // Live Tracker View
-  if (activeComplaint && activeComplaint.status !== 'resolved') {
+  // ─────────────────── ERROR SCREEN ───────────────────
+  if (siteError) {
+    const isNetworkErr = siteError === 'network';
     return (
-      <View style={[styles.root, { backgroundColor: '#FFFFFF' }]}>
-        <ScrollView contentContainerStyle={styles.scroll}>
-           <Animated.View entering={FadeInDown} style={styles.trackerHeader}>
-              <View style={styles.liveBadgeHeader}>
-                 <View style={styles.liveDot} />
-                 <Text style={styles.liveText}>LIVE TRACKING ACTIVE</Text>
-              </View>
-              <Text style={styles.compShortId}>CASE #{activeComplaint.id.substring(0, 8).toUpperCase()}</Text>
-              <Text style={styles.siteNameSmall}>{site.name}</Text>
-           </Animated.View>
-
-           <Animated.View entering={FadeInUp.delay(200)} style={styles.trackerCardWrap}>
-              <SoftCard style={styles.trackerContent}>
-                 <Text style={styles.trackerTitle}>Issue Status</Text>
-                 <PhaseTracker currentPhase={activeComplaint.current_phase || 'reported'} isDarkMode={false} />
-                 
-                 <View style={styles.metaRow}>
-                    <View style={styles.metaItem}>
-                       <Text style={styles.metaLabel}>Category</Text>
-                       <Text style={styles.metaValue}>{activeComplaint.category}</Text>
-                    </View>
-                    <View style={styles.metaItem}>
-                       <Text style={styles.metaLabel}>Location</Text>
-                       <Text style={styles.metaValue}>{activeComplaint.floor || 'G'} / {activeComplaint.room_number || 'N/A'}</Text>
-                    </View>
-                 </View>
-              </SoftCard>
-           </Animated.View>
-
-           <View style={styles.waitMessage}>
-              <Feather name="info" size={16} color="#64748B" />
-              <Text style={styles.waitText}>Hold onto this page. It will update in real-time as our staff attends to your report.</Text>
-           </View>
-           
-           <SoftButton 
-             title="Submit Another Issue" 
-             variant="outline" 
-             onPress={async () => {
-                await AsyncStorage.setItem(`GMS_NEW_FLOW_FLAG_${id}`, 'true');
-                setActiveComplaint(null);
-                setSubmitted(false);
-                setStep(1);
-             }}
-             style={{ marginTop: 24 }}
-           />
-        </ScrollView>
+      <View style={styles.center}>
+        <Feather
+          name={isNetworkErr ? 'wifi-off' : 'alert-triangle'}
+          size={48}
+          color={isNetworkErr ? '#F59E0B' : Colors.danger}
+        />
+        <Text style={styles.errorTitle}>
+          {isNetworkErr ? 'Connection Problem' : 'Invalid QR Code'}
+        </Text>
+        <Text style={styles.errorSub}>
+          {isNetworkErr
+            ? 'Could not connect to the server. Check your internet connection and try again.'
+            : "This QR code doesn't link to a valid facility. Please ask staff for the correct QR code."}
+        </Text>
+        {isNetworkErr && (
+          <Pressable
+            style={styles.retryBtn}
+            onPress={() => { setSiteError(false); setLoading(true); }}
+          >
+            <Text style={styles.retryBtnText}>RETRY</Text>
+          </Pressable>
+        )}
       </View>
     );
   }
 
-  // Resolved / Success Splash
-  if (activeComplaint?.status === 'resolved') {
-      return (
-        <View style={styles.center}>
-           <View style={styles.successIconCircle}>
-              <Feather name="check" size={40} color="white" />
-           </View>
-           <Text style={styles.successTitle}>Problem Resolved</Text>
-           <Text style={styles.successSub}>The onsite team has confirmed that this issue is now closed. Thank you for your alert.</Text>
-           <SoftButton title="Back to Scanner" onPress={() => { AsyncStorage.removeItem(`GMS_ACTIVE_COMP_SITE_${id}`); AsyncStorage.removeItem(`GMS_NEW_FLOW_FLAG_${id}`); setActiveComplaint(null); setSubmitted(false); }} style={{ marginTop: 24, width: '100%' }} />
-        </View>
-      );
+  // ─────────────────── RATE LIMITED ───────────────────
+  if (rateLimitLeft) {
+    return (
+      <View style={[styles.center, { paddingTop: insets.top }]}>
+        <Animated.View style={[styles.card, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+          <View style={[styles.iconWrap, { backgroundColor: '#FFFBEB' }]}>
+            <Feather name="clock" size={34} color="#F59E0B" />
+          </View>
+          <Text style={styles.cardTitle}>Complaint Already Submitted</Text>
+          <Text style={styles.cardSub}>
+            You can raise another complaint in{'\n'}
+            <Text style={{ color: Colors.primary, fontFamily: 'Inter_800ExtraBold', fontSize: 20 }}>
+              {rateLimitLeft} min
+            </Text>
+          </Text>
+          <Pressable
+            style={styles.secondaryAction}
+            onPress={async () => {
+              const activeId = await AsyncStorage.getItem(`GMS_ACTIVE_COMP_SITE_${id}`);
+              if (activeId) router.replace(`/public/waiting/${activeId}`);
+            }}
+          >
+            <Text style={styles.secondaryActionText}>CHECK STATUS</Text>
+            <Feather name="arrow-right" size={14} color={Colors.primary} />
+          </Pressable>
+        </Animated.View>
+      </View>
+    );
   }
 
+  // ─────────────────── MAIN PORTAL PAGE ───────────────────
   return (
-    <View style={styles.root}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.scroll}>
-          
-          <Animated.View entering={FadeInDown} style={styles.header}>
-            <SoftCard style={styles.headerCard}>
-              <View style={styles.logoCircle}>
-                {site.logo_url ? <Image source={{ uri: site.logo_url }} style={styles.logo} /> : <Feather name="map-pin" size={24} color={Colors.primary} />}
-              </View>
-              <Text style={styles.siteHeaderName}>{site.name}</Text>
-              <Text style={styles.deskSub}>QUICK RESPONSE DESK</Text>
-            </SoftCard>
-          </Animated.View>
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <Animated.View style={[styles.card, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
 
-          {/* Elevated Recovery Option - ALWAYS VISIBLE before geofence or in form */}
-          {recoveredId && !activeComplaint && (
-            <Animated.View entering={FadeInUp} style={{ marginBottom: 24 }}>
-               <SoftCard style={{ padding: 16, backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', borderWidth: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                     <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#DBEAFE', justifyContent: 'center', alignItems: 'center' }}>
-                        <Feather name="activity" size={16} color={Colors.primary} />
-                     </View>
-                     <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 13, fontFamily: 'Inter_800ExtraBold', color: '#1E40AF' }}>Active Report Detected</Text>
-                        <Text style={{ fontSize: 11, color: '#3B82F6' }}>Review your previous submission.</Text>
-                     </View>
-                     <SoftButton 
-                        title="View Tracker" 
-                        variant="ghost" 
-                        onPress={async () => {
-                           await AsyncStorage.removeItem(`GMS_NEW_FLOW_FLAG_${id}`);
-                           await loadActiveRecord(recoveredId);
-                        }} 
-                        style={{ height: 32, paddingHorizontal: 12 }}
-                     />
-                  </View>
-               </SoftCard>
-            </Animated.View>
-          )}
+        {/* Site badge */}
+        <View style={styles.siteBadge}>
+          <Feather name="map-pin" size={12} color={Colors.primary} />
+          <Text style={styles.siteBadgeText} numberOfLines={1}>{site?.name}</Text>
+        </View>
 
-          {isInside === null ? (
-            <SoftCard style={styles.geofenceCard}>
-               <PulsingRing isChecking={checkingLocation} />
-               <Text style={styles.geoTitle}>Confirm Presence</Text>
-               <Text style={styles.geoSub}>This portal is for onsite reporting only. Please verify you are at {site.name}.</Text>
-               <SoftButton title={checkingLocation ? calibrationStep : "I am Onsite"} onPress={verifyLocation} loading={checkingLocation} />
-            </SoftCard>
-          ) : isInside === false ? (
-            <SoftCard style={styles.geofenceCard}>
-               <Feather name="map-pin" size={40} color={Colors.danger} style={{ marginBottom: 16 }} />
-               <Text style={styles.geoTitle}>Location Mismatch</Text>
-               <Text style={styles.geoSub}>You appear to be {distanceAway}m away. Reports must be raised from within the premises.</Text>
-               <SoftButton title="Re-Verify Location" variant="outline" onPress={verifyLocation} />
-            </SoftCard>
-          ) : (
-            <Animated.View entering={FadeIn}>
-              <SoftCard style={styles.formContainer}>
-                  <Text style={styles.stepTitle}>Reporting Concern ({step}/4)</Text>
-                  <View style={styles.progressBar}><View style={[styles.progressFill, { width: `${(step/4)*100}%` }]} /></View>
+        {/* Icon */}
+        <View style={styles.iconWrap}>
+          <Feather name="alert-circle" size={38} color={Colors.primary} />
+        </View>
 
-                  {step === 1 && (
-                    <View>
-                       <Text style={styles.label}>Select Concern</Text>
-                       <View style={styles.catGrid}>
-                          <Pressable style={[styles.miniCat, category === 'Cleaning' && styles.miniCatActive]} onPress={() => setCategory('Cleaning')}>
-                             <Feather name="wind" size={20} color={category === 'Cleaning' ? 'white' : '#64748B'} />
-                             <Text style={[styles.miniCatLabel, category === 'Cleaning' && { color: 'white' }]}>Cleaning</Text>
-                          </Pressable>
-                          <Pressable style={[styles.miniCat, category === 'Misbehave' && styles.miniCatActive]} onPress={() => setCategory('Misbehave')}>
-                             <Feather name="shield" size={20} color={category === 'Misbehave' ? 'white' : '#64748B'} />
-                             <Text style={[styles.miniCatLabel, category === 'Misbehave' && { color: 'white' }]}>Behavior</Text>
-                          </Pressable>
-                       </View>
+        <Text style={styles.cardTitle}>Report a Complaint</Text>
+        <Text style={styles.cardSub}>
+          Tap below to register your complaint at this facility. A supervisor will be assigned shortly.
+        </Text>
 
-                       <View style={{ marginTop: 20 }}>
-                         <Text style={styles.label}>Visual Proof (Required)</Text>
-                         <Pressable onPress={pickImage} style={[styles.photoBox, image && { borderColor: Colors.primary }]}>
-                            {image ? <Image source={{ uri: image }} style={styles.photoPreview} /> : <Feather name="camera" size={24} color="#CBD5E1" />}
-                            <Text style={styles.photoLabel}>{image ? "Image Captured" : "Tap to Take Photo"}</Text>
-                         </Pressable>
-                       </View>
+        {/* Session pill */}
+        <View style={styles.sessionRow}>
+          <Feather name="shield" size={12} color="#94A3B8" />
+          <Text style={styles.sessionText}>Session: {portalSession || '—'}</Text>
+        </View>
 
-                       <SoftButton title="Next Step" onPress={() => setStep(2)} disabled={!category || !image} style={{ marginTop: 24 }} />
-                    </View>
-                  )}
+        {/* CTA */}
+        <Pressable
+          onPress={handleRaiseComplaint}
+          disabled={submitting}
+          style={({ pressed }) => [styles.cta, pressed && { opacity: 0.8 }]}
+        >
+          {submitting
+            ? <ActivityIndicator color="white" />
+            : <>
+                <Text style={styles.ctaText}>RAISE COMPLAINT</Text>
+                <Feather name="send" size={18} color="white" />
+              </>
+          }
+        </Pressable>
 
-                  {step === 2 && (
-                     <View>
-                        <Text style={styles.label}>Location Details</Text>
-                        <SoftInput placeholder="Floor (e.g. 1st, Lobby)" value={floor} onChangeText={setFloor} />
-                        <SoftInput placeholder="Room / Area" value={room} onChangeText={setRoom} containerStyle={{ marginTop: 12 }} />
-                        <View style={styles.btnRow}>
-                           <SoftButton title="Back" variant="outline" onPress={() => setStep(1)} style={{ flex: 1 }} />
-                           <SoftButton title="Next" onPress={() => setStep(3)} style={{ flex: 2 }} />
-                        </View>
-                     </View>
-                  )}
 
-                  {step === 3 && (
-                    <View>
-                       <Text style={styles.label}>Final Details</Text>
-                       <SoftInput placeholder="Your Name" value={name} onChangeText={setName} />
-                       <SoftInput placeholder="Describe the issue..." value={description} onChangeText={setDescription} multiline style={{ height: 100, marginTop: 12 }} />
-                       <View style={styles.btnRow}>
-                           <SoftButton title="Back" variant="outline" onPress={() => setStep(2)} style={{ flex: 1 }} />
-                           <SoftButton title="Submit Report" onPress={handleSubmit} loading={isSubmitting} style={{ flex: 2 }} />
-                        </View>
-                    </View>
-                  )}
-               </SoftCard>
-            </Animated.View>
-          )}
-
-          {correctionNote && (
-            <View style={{ marginTop: 20, padding: 12, backgroundColor: '#FEF3C7', borderRadius: 12 }}>
-               <Text style={{ fontSize: 12, color: '#92400E', textAlign: 'center' }}>{correctionNote}</Text>
-            </View>
-          )}
-
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <Text style={styles.footerNote}>
+          <Feather name="lock" size={10} color="#CBD5E1" /> Secured · 15-min limit per submission
+        </Text>
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F8FAFC' },
-  scroll: { padding: 24, paddingTop: 60, paddingBottom: 60 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  header: { marginBottom: 24 },
-  headerCard: { alignItems: 'center', padding: 20 },
-  logoCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#EFF6FF', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  logo: { width: '100%', height: '100%', borderRadius: 25 },
-  siteHeaderName: { fontSize: 20, fontFamily: 'Inter_900Black', color: '#0F172A' },
-  deskSub: { fontSize: 10, fontFamily: 'Inter_800ExtraBold', color: Colors.primary, letterSpacing: 1, marginTop: 4 },
-  geofenceCard: { padding: 32, alignItems: 'center' },
-  pulseContainer: { height: 80, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
-  pulseCenter: { width: 60, height: 60, borderRadius: 30, backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center' },
-  geoTitle: { fontSize: 18, fontFamily: 'Inter_800ExtraBold', color: '#0F172A', marginBottom: 8 },
-  geoSub: { fontSize: 13, color: '#64748B', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
-  formContainer: { padding: 20 },
-  stepTitle: { fontSize: 14, fontFamily: 'Inter_800ExtraBold', color: '#64748B', marginBottom: 12 },
-  progressBar: { height: 4, backgroundColor: '#F1F5F9', borderRadius: 2, marginBottom: 20, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: Colors.primary },
-  label: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#94A3B8', textTransform: 'uppercase', marginBottom: 12 },
-  catGrid: { flexDirection: 'row', gap: 12 },
-  miniCat: { flex: 1, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', alignItems: 'center', gap: 8 },
-  miniCatActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  miniCatLabel: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#64748B' },
-  photoBox: { height: 120, borderRadius: 16, backgroundColor: '#F8FAFC', borderStyle: 'dashed', borderWidth: 2, borderColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center', gap: 8 },
-  photoPreview: { width: '100%', height: '100%', borderRadius: 14 },
-  photoLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#94A3B8' },
-  btnRow: { flexDirection: 'row', gap: 12, marginTop: 24 },
-  trackerHeader: { alignItems: 'center', marginBottom: 24 },
-  liveBadgeHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FDE6E9', padding: 6, borderRadius: 6, gap: 6, marginBottom: 12 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#EF4444' },
-  liveText: { fontSize: 10, fontFamily: 'Inter_900Black', color: '#EF4444' },
-  compShortId: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#0F172A' },
-  siteNameSmall: { fontSize: 14, color: '#64748B' },
-  trackerCardWrap: { marginBottom: 24 },
-  trackerContent: { padding: 24 },
-  trackerTitle: { fontSize: 16, fontFamily: 'Inter_800ExtraBold', color: '#0F172A', marginBottom: 20 },
-  metaRow: { flexDirection: 'row', marginTop: 24, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
-  metaItem: { flex: 1 },
-  metaLabel: { fontSize: 10, fontFamily: 'Inter_700Bold', color: '#94A3B8', textTransform: 'uppercase' },
-  metaValue: { fontSize: 14, fontFamily: 'Inter_800ExtraBold', color: '#334155' },
-  waitMessage: { flexDirection: 'row', gap: 12, padding: 16, backgroundColor: '#F8FAFC', borderRadius: 12, alignItems: 'center' },
-  waitText: { flex: 1, fontSize: 12, color: '#64748B', lineHeight: 18 },
-  successIconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#10B981', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
-  successTitle: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#0F172A' },
-  successSub: { fontSize: 14, color: '#64748B', textAlign: 'center', marginTop: 8, lineHeight: 22 }
+  root:   { flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: '#F8FAFC' },
+
+  loadingText: { marginTop: 14, fontSize: 14, color: '#64748B', fontFamily: 'Inter_500Medium' },
+  errorTitle:  { fontSize: 20, fontFamily: 'Inter_900Black', color: '#0F172A', marginTop: 20, textAlign: 'center' },
+  errorSub:    { fontSize: 14, color: '#64748B', textAlign: 'center', marginTop: 8, lineHeight: 22 },
+
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 32,
+    padding: 32,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.07,
+    shadowRadius: 24,
+    elevation: 6,
+  },
+
+  siteBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#EFF6FF', paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 20, marginBottom: 24,
+  },
+  siteBadgeText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: Colors.primary },
+
+  iconWrap: {
+    width: 84, height: 84, borderRadius: 28,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 24,
+  },
+
+  cardTitle: { fontSize: 24, fontFamily: 'Inter_900Black', color: '#0F172A', textAlign: 'center', marginBottom: 10 },
+  cardSub:   { fontSize: 14, fontFamily: 'Inter_500Medium', color: '#64748B', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+
+  sessionRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 28 },
+  sessionText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#94A3B8', letterSpacing: 0.3 },
+
+  cta: {
+    backgroundColor: Colors.primary,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
+    paddingVertical: 18, paddingHorizontal: 36,
+    borderRadius: 20, width: '100%', marginBottom: 20,
+  },
+  ctaText: { color: 'white', fontSize: 16, fontFamily: 'Inter_800ExtraBold', letterSpacing: 0.5 },
+
+  secondaryAction: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 12, paddingHorizontal: 20,
+    borderRadius: 14, borderWidth: 1.5, borderColor: Colors.primary,
+    marginTop: 8,
+  },
+  secondaryActionText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: Colors.primary },
+
+  retryBtn: { marginTop: 24, backgroundColor: Colors.primary, paddingVertical: 14, paddingHorizontal: 32, borderRadius: 16 },
+  retryBtnText: { color: 'white', fontSize: 14, fontFamily: 'Inter_800ExtraBold' },
+
+  footerNote: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#CBD5E1', textAlign: 'center' },
 });

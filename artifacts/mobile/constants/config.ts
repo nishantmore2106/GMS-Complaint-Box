@@ -14,6 +14,7 @@ export const APP_CONFIG = {
   SYSTEM: {
     VERSION: '1.2.0',
     MAINTENANCE_CHECK_INTERVAL: 60000 * 5, // 5 mins
+    PUBLIC_PORTAL_URL: 'https://gms-complaint-box.netlify.app',
   },
   CACHE: {
     SITES: 'cached_sites',

@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "GMS Complaints Box",
+    "name": "GMS Portal",
     "slug": "mobile",
     "owner": "nishantmore21",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "gms-complaints",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
@@ -16,12 +16,24 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.gms.complaints"
+      "bundleIdentifier": "com.gms.portal",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "GMS Portal needs access to your location to verify complaint reporting within authorized site boundaries (Geofencing).",
+        "NSCameraUsageDescription": "GMS Portal needs access to your camera to take photos as evidence for complaint resolution.",
+        "NSPhotoLibraryUsageDescription": "GMS Portal needs access to your photo library to allow uploading existing photos for complaint tracking.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
-      "package": "com.gms.complaints",
+      "package": "com.gms.portal",
+      "versionCode": 1,
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {

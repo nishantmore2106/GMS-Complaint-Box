@@ -151,7 +151,7 @@ export default function NewComplaintScreen() {
       }
 
       console.log("[NewComplaint] Submitting complaint...");
-      await addComplaint({
+      const res = await addComplaint({
         companyId,
         siteId: effectiveSiteId,
         siteName: selectedSite?.name ?? "Unknown Site",
@@ -171,7 +171,12 @@ export default function NewComplaintScreen() {
       });
       console.log("[NewComplaint] Complaint submitted successfully!");
       showToast("Complaint raised!", "success");
-      router.back();
+      
+      if (res?.id) {
+        router.replace(`/complaint/${res.id}`);
+      } else {
+        router.back();
+      }
     } catch (e: any) {
       console.error("[NewComplaint] Submit ERROR:", e);
       showToast(e.message || "Submission failed", "error");

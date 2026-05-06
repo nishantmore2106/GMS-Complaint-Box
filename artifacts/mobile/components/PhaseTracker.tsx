@@ -84,7 +84,7 @@ export function PhaseTracker({ currentPhase, isDarkMode, history = [] }: Props) 
                 >
                   {phase.label}
                 </Text>
-                {timeStr && (
+                {!!timeStr && (
                   <Text style={[styles.time, isDarkMode && { color: Colors.dark.textMuted }]}>
                     {timeStr}
                   </Text>
@@ -112,16 +112,16 @@ const styles = StyleSheet.create({
   },
   phaseContainer: {
     flexDirection: 'row',
-    minHeight: 60,
+    minHeight: 70,
   },
   indicatorCol: {
-    width: 30,
+    width: 36,
     alignItems: 'center',
   },
   dot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
@@ -135,24 +135,23 @@ const styles = StyleSheet.create({
   },
   dotCompleted: {
     backgroundColor: '#10B981',
-    borderColor: '#10B981',
+    borderColor: '#D1FAE5',
   },
   dotCurrent: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: '#4F46E5',
+    borderColor: '#EEF2FF',
     transform: [{ scale: 1.1 }],
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowRadius: 12,
+    elevation: 8,
   },
   line: {
     flex: 1,
     width: 2,
     backgroundColor: '#F1F5F9',
-    marginTop: -2,
-    marginBottom: -2,
+    marginVertical: 4,
   },
   lineDark: {
     backgroundColor: '#1E293B',
@@ -162,8 +161,8 @@ const styles = StyleSheet.create({
   },
   contentCol: {
     flex: 1,
-    paddingLeft: 12,
-    paddingBottom: 20,
+    paddingLeft: 16,
+    paddingBottom: 24,
   },
   labelRow: {
     flexDirection: 'row',
@@ -176,18 +175,24 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   labelCurrent: {
-    color: Colors.primary,
+    color: '#1E293B',
     fontSize: 15,
+    fontFamily: 'Inter_900Black',
   },
   description: {
     fontSize: 12,
     fontFamily: 'Inter_500Medium',
     color: '#94A3B8',
-    marginTop: 2,
+    marginTop: 4,
   },
   time: {
     fontSize: 11,
-    fontFamily: 'Inter_600SemiBold',
-    color: '#94A3B8',
+    fontFamily: 'Inter_700Bold',
+    color: '#4F46E5',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
 });
+

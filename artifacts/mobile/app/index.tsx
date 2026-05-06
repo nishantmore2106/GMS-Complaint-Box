@@ -169,10 +169,10 @@ export default function RootEntry() {
     setIsSubmitting(true);
     
     // 2. Perform validation after setting state (so spinner shows)
-    if (!name || !description) {
-      console.log("[WebSubmit] Validation failed:", { name: !!name, desc: !!description });
+    if (!description) {
+      console.log("[WebSubmit] Validation failed:", { desc: !!description });
       setIsSubmitting(false); // Revert since we aren't proceeding
-      Alert.alert("Missing Fields", "Please enter your name and issue details.");
+      Alert.alert("Missing Fields", "Please enter the issue details.");
       return;
     }
 
@@ -187,22 +187,27 @@ export default function RootEntry() {
       let imageUrl = null;
       if (image) {
         console.log("[WebSubmit] Uploading image...");
-        const fileName = `public/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-        const response = await fetch(image);
-        const blob = await response.blob();
-        
-        const { data, error: uploadErr } = await supabase.storage
-          .from(APP_CONFIG.STORAGE.BUCKET_NAME)
-          .upload(fileName, blob);
+        try {
+          const fileName = `public/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+          const response = await fetch(image);
+          const blob = await response.blob();
           
-        if (uploadErr) throw uploadErr;
-        
-        const { data: { publicUrl } } = supabase.storage
-          .from(APP_CONFIG.STORAGE.BUCKET_NAME)
-          .getPublicUrl(data.path);
-        imageUrl = publicUrl;
+          const { data, error: uploadErr } = await supabase.storage
+            .from(APP_CONFIG.STORAGE.BUCKET_NAME)
+            .upload(fileName, blob);
+            
+          if (uploadErr) throw uploadErr;
+          
+          const { data: { publicUrl } } = supabase.storage
+            .from(APP_CONFIG.STORAGE.BUCKET_NAME)
+            .getPublicUrl(data.path);
+          imageUrl = publicUrl;
+        } catch (imgErr) {
+          console.warn("[WebSubmit] Image upload failed, proceeding without image:", imgErr);
+        }
       }
 
+      console.log("[WebSubmit] Inserting record into complaints table...");
       const { data: newComplaint, error } = await supabase.from('complaints').insert([{
         site_id: detectedSite.id,
         company_id: detectedSite.company_id,
@@ -212,7 +217,7 @@ export default function RootEntry() {
         subcategory: category === 'Cleaning' ? 'Public Area Cleaning' : 'Improper Behavior',
         description: `${description}\nFloor: ${floor}, Room: ${room}`,
         is_anonymous: true,
-        anonymous_name: name,
+        anonymous_name: name || "Anonymous",
         floor: floor,
         room_number: room,
         status: 'pending',
@@ -220,7 +225,10 @@ export default function RootEntry() {
         before_media_url: imageUrl
       }]).select().single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("[WebSubmit] Insert Error Details:", error);
+        throw error;
+      }
       
       if (newComplaint) {
         await AsyncStorage.setItem(APP_CONFIG.AUTH.SESSION_RECOVERY_KEY, newComplaint.id);
@@ -274,181 +282,64 @@ export default function RootEntry() {
   if (Platform.OS === 'web') {
     const activeBg = isDarkMode ? Colors.dark.bg : '#F8FAFC';
 
-    return (
-      <View style={[styles.root, { backgroundColor: activeBg }]}>
-        <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 60, paddingBottom: 60 }]}>
-          
-          {/* Web Header */}
-          <View style={styles.webHeader}>
-            <View style={styles.logoCircleSmall}>
-               <Feather name="box" size={24} color="#1E3A8A" />
-            </View>
-            <Text style={styles.webTitle}>GMS Public Portal</Text>
-            {activeComplaintId && (
-              <Pressable 
-                onPress={() => router.push(`/public/scan/${activeComplaintId}`)}
-                style={styles.trackerBadge}
-              >
-                <Feather name="activity" size={14} color="white" />
-                <Text style={styles.trackerBadgeText}>View Active Tracker</Text>
-              </Pressable>
-            )}
-          </View>
+    // ── EFFECT: AUTO-REDIRECT ──
+    useEffect(() => {
+      const runRedirect = async () => {
+        if (locating) return;
+        
+        // 1. Check for active session first
+        const savedId = await AsyncStorage.getItem(APP_CONFIG.AUTH.SESSION_RECOVERY_KEY);
+        if (savedId) {
+          const { data } = await supabase.from('complaints').select('status').eq('id', savedId).single();
+          if (data && data.status !== 'resolved') {
+            router.replace(`/public/tracker/${savedId}`);
+            return;
+          }
+        }
 
-          {locating ? (
-            <View style={styles.centerSection}>
-              <ActivityIndicator size="large" color="#1E3A8A" />
-              <Text style={styles.statusText}>Detecting Facility...</Text>
-            </View>
-          ) : locationError ? (
-            <View style={styles.centerSection}>
+        // 2. If no active session, but site detected
+        if (detectedSite) {
+          router.replace(`/public/scan/${detectedSite.id}${test === 'true' ? '?test=true' : ''}`);
+        }
+      };
+      runRedirect();
+    }, [locating, detectedSite, test]);
+
+    return (
+      <View style={[styles.root, { backgroundColor: activeBg, justifyContent: 'center', alignItems: 'center' }]}>
+        <Animated.View entering={FadeIn.duration(800)} style={{ alignItems: 'center', gap: 24, padding: 40 }}>
+           <View style={styles.logoContainer}>
+              <Feather name="box" size={42} color="#1E3A8A" />
+           </View>
+           
+           {locating ? (
+             <>
+               <ActivityIndicator size="large" color="#1E3A8A" />
+               <Text style={styles.statusText}>Detecting nearby GMS Facility...</Text>
+             </>
+           ) : locationError ? (
+             <>
                <View style={styles.errorIconCircle}>
                  <Feather name="map-pin" size={32} color="#EF4444" />
                </View>
-               <Text style={styles.errorTitle}>Verification Required</Text>
+               <Text style={styles.errorTitle}>Facility Not Found</Text>
                <Text style={styles.errorSub}>{locationError}</Text>
-               <SoftButton title="Try Again" onPress={() => autoDetectSite(false)} variant="outline" style={{ marginTop: 24, width: 200 }} />
+               <SoftButton title="Scan QR Code Instead" onPress={() => {}} variant="outline" style={{ marginTop: 24, width: 240 }} />
                <Pressable onPress={() => autoDetectSite(true)} style={{ marginTop: 20 }}>
-                  <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#64748B', textDecorationLine: 'underline' }}>Testing? Use Mock Facility</Text>
+                  <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#64748B', textDecorationLine: 'underline' }}>Testing? Force Mock Site</Text>
                </Pressable>
-            </View>
-          ) : submitted ? (
-            <View style={styles.centerSection}>
-              <View style={styles.successIconLarge}>
-                 <Feather name="check" size={40} color="white" />
-              </View>
-              <Text style={styles.successTitle}>Alert Sent!</Text>
-              <Text style={styles.successSub}>
-                Your report has been dispatched to {detectedSite.name}. A supervisor will assist shortly.
-              </Text>
-              <SoftButton title="Raise Another" onPress={() => setSubmitted(false)} variant="outline" style={{ marginTop: 24, width: 200 }} />
-            </View>
-          ) : detectedSite ? (
-            <View style={styles.formSection}>
-               <View style={styles.siteBanner}>
-                  <Text style={styles.atText}>Current Location</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                    <Feather name="map-pin" size={16} color="#1E3A8A" />
-                    <Text style={styles.siteName}>{detectedSite.name}</Text>
-                  </View>
-               </View>
-
-               <View style={styles.webCard}>
-                 
-                 {/* Progress Bar */}
-                 <View style={styles.progressContainer}>
-                   <View style={styles.progressTrack}>
-                     <Animated.View 
-                       style={[styles.progressFill, { width: `${(step / totalSteps) * 100}%` }]} 
-                       layout={Layout.springify()}
-                     />
-                   </View>
-                   <Text style={styles.progressText}>Step {step} of {totalSteps}</Text>
-                 </View>
-
-                 {step === 1 && (
-                   <Animated.View entering={SlideInRight} exiting={SlideOutLeft} style={styles.stepContainer}>
-                     <View style={styles.formGroup}>
-                       <Text style={styles.sectionLabel}>WHAT'S THE ISSUE?</Text>
-                       <Text style={styles.stepHint}>Select the category that best describes the problem.</Text>
-                       <View style={styles.catGridBig}>
-                          <Pressable 
-                            style={[styles.catCardBig, category === 'Cleaning' && styles.catCardActive]}
-                            onPress={() => { setCategory('Cleaning'); Haptics.selectionAsync(); setTimeout(() => setStep(2), 300); }}
-                          >
-                            <View style={[styles.catIconWrap, category === 'Cleaning' && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                               <Feather name="wind" size={28} color={category === 'Cleaning' ? 'white' : '#1E3A8A'} />
-                            </View>
-                            <Text style={[styles.catCardTextBig, category === 'Cleaning' && { color: 'white' }]}>Cleaning</Text>
-                            <Text style={[styles.catCardDesc, category === 'Cleaning' && { color: 'rgba(255,255,255,0.8)' }]}>Spills, trash, mess</Text>
-                          </Pressable>
-                          
-                          <Pressable 
-                            style={[styles.catCardBig, category === 'Misbehave' && styles.catCardActive]}
-                            onPress={() => { setCategory('Misbehave'); Haptics.selectionAsync(); setTimeout(() => setStep(2), 300); }}
-                          >
-                            <View style={[styles.catIconWrap, category === 'Misbehave' && { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                               <Feather name="shield" size={28} color={category === 'Misbehave' ? 'white' : '#1E3A8A'} />
-                            </View>
-                            <Text style={[styles.catCardTextBig, category === 'Misbehave' && { color: 'white' }]}>Behavior</Text>
-                            <Text style={[styles.catCardDesc, category === 'Misbehave' && { color: 'rgba(255,255,255,0.8)' }]}>Noise, complaints</Text>
-                          </Pressable>
-                       </View>
-                     </View>
-                     
-                     <SoftButton 
-                       title="Next Step" 
-                       onPress={() => setStep(2)} 
-                       style={styles.actionBtn}
-                     />
-                   </Animated.View>
-                 )}
-
-                 {step === 2 && (
-                   <Animated.View entering={SlideInRight} exiting={SlideOutLeft} style={styles.stepContainer}>
-                     <View style={styles.formGroup}>
-                       <Text style={styles.sectionLabel}>EXACT LOCATION</Text>
-                       <Text style={styles.stepHint}>Tell us exactly where our staff should go.</Text>
-                       <SoftInput placeholder="Floor (e.g. Lobby, 4)" value={floor} onChangeText={setFloor} keyboardType="default" containerStyle={{ marginBottom: 12 }} />
-                       <SoftInput placeholder="Room Number or Specific Area" value={room} onChangeText={setRoom} />
-                     </View>
-                     
-                     <View style={styles.buttonRow}>
-                       <SoftButton title="Back" onPress={() => setStep(1)} variant="outline" style={{ flex: 1 }} />
-                       <SoftButton title="Next Step" onPress={() => setStep(3)} style={{ flex: 2 }} />
-                     </View>
-                   </Animated.View>
-                 )}
-
-                 {step === 3 && (
-                   <Animated.View entering={SlideInRight} exiting={SlideOutLeft} style={styles.stepContainer}>
-                     <View style={styles.formGroup}>
-                       <Text style={styles.sectionLabel}>YOUR DETAILS (OPTIONAL)</Text>
-                       <Text style={styles.stepHint}>Provide your name if you'd like us to address you.</Text>
-                       <SoftInput placeholder="Your Name or remain anonymous" value={name} onChangeText={setName} containerStyle={{ marginBottom: 20 }} />
-                       
-                       <Text style={styles.sectionLabel}>DETAILS & DESCRIPTION</Text>
-                       <SoftInput 
-                         placeholder="Describe what needs attention..." 
-                         value={description} 
-                         onChangeText={setDescription}
-                         multiline
-                         style={styles.textArea}
-                       />
-
-                       <Text style={[styles.sectionLabel, { marginTop: 20 }]}>ATTACH PHOTO</Text>
-                       <Pressable onPress={pickImage} style={styles.imagePickerBtn}>
-                          {image ? (
-                            <Animated.Image entering={FadeIn} source={{ uri: image }} style={styles.previewImage} />
-                          ) : (
-                            <View style={styles.pickerPlaceholder}>
-                              <Feather name="camera" size={24} color="#1E3A8A" />
-                              <Text style={styles.pickerText}>Take or Upload Photo</Text>
-                            </View>
-                          )}
-                       </Pressable>
-                     </View>
-
-                     <View style={styles.buttonRow}>
-                       <SoftButton title="Back" onPress={() => setStep(2)} variant="outline" style={{ flex: 1 }} />
-                       <SoftButton 
-                         title={isSubmitting ? "Dispatching..." : "Submit Alert"} 
-                         onPress={handleSubmit} 
-                         loading={isSubmitting}
-                         style={{ flex: 2 }}
-                       />
-                     </View>
-                   </Animated.View>
-                 )}
-
-               </View>
-            </View>
-          ) : null}
-
-          <View style={styles.webFooter}>
-            <Text style={styles.footerText}>© 2026 GMS Facility Management Service</Text>
-          </View>
-        </ScrollView>
+             </>
+           ) : (
+             <>
+               <ActivityIndicator size="small" color="#1E3A8A" />
+               <Text style={styles.statusText}>Synchronizing with {detectedSite?.name || 'Portal'}...</Text>
+             </>
+           )}
+        </Animated.View>
+        
+        <View style={{ position: 'absolute', bottom: 40 }}>
+          <Text style={styles.footerText}>© 2026 GMS Facility Management Service</Text>
+        </View>
       </View>
     );
   }

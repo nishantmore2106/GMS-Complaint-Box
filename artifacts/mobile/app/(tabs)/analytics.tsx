@@ -17,20 +17,23 @@ import { Colors } from "@/constants/colors";
 import { useApp } from "@/context/AppContext";
 import Svg, { G, Rect, Text as SvgText, Circle } from "react-native-svg";
 import { SoftCard } from "@/components/SoftCard";
+import * as Haptics from "expo-haptics";
+import { Alert } from "react-native";
+import { ExportService } from "@/services/export.service";
 
 import { PremiumRefreshVisuals } from "@/components/PremiumRefreshVisuals";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from 'react-native-reanimated';
 import { RefreshControl } from "react-native";
 
 export default function AnalyticsScreen() {
-  const { currentUser, selectedCompanyId, getCompanyComplaints, getCompanySites, getCompanyById, isDarkMode, notifications, profileImage, refreshData } = useApp();
+  const { currentUser, selectedCompanyId, getCompanyComplaints, getCompanySites, getCompanyById, isDarkMode, notifications, profileImage, refreshData, users } = useApp();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isDark = isDarkMode;
   
   const styles = useMemo(() => getStyles(isDark, width), [isDark, width]);
 
-  const [dateFilter, setDateFilter] = useState<'Today' | 'Week' | 'Month'>('Month');
+  const [dateFilter, setDateFilter] = useState<'Today' | 'Week' | 'Month' | '90 Days' | 'All Time'>('Month');
   const [refreshing, setRefreshing] = useState(false);
   const scrollY = useSharedValue(0);
 
@@ -71,7 +74,9 @@ export default function AnalyticsScreen() {
       const diffDays = diffMs / (1000 * 3600 * 24);
       if (dateFilter === 'Today') return diffDays <= 1;
       if (dateFilter === 'Week') return diffDays <= 7;
-      return diffDays <= 30; // Month
+      if (dateFilter === 'Month') return diffDays <= 30;
+      if (dateFilter === '90 Days') return diffDays <= 90;
+      return true; // All Time
     });
   }, [allComplaints, role, currentUser?.id, dateFilter]);
 
@@ -140,6 +145,34 @@ export default function AnalyticsScreen() {
       };
     }).sort((a, b) => b.count - a.count);
 
+    // Supervisor Performance (Founder/Admin only)
+    const supervisorPerformance = role !== 'client' ? Array.from(new Set(filteredComplaints.map(c => c.supervisorId).filter(Boolean))).map(sid => {
+       const sup = users.find(u => u.id === sid);
+       const supComplaints = filteredComplaints.filter(c => c.supervisorId === sid);
+       const supResolved = supComplaints.filter(c => c.status === 'resolved');
+       const rate = supComplaints.length > 0 ? Math.round((supResolved.length / supComplaints.length) * 100) : 0;
+       
+       let tTime = 0;
+       let tCount = 0;
+       supResolved.forEach(c => {
+         if (c.createdAt && c.resolvedAt) {
+           tTime += (new Date(c.resolvedAt).getTime() - new Date(c.createdAt).getTime());
+           tCount++;
+         }
+       });
+       const avgH = tCount > 0 ? (tTime / tCount) / (1000 * 3600) : 0;
+
+       return {
+         id: sid as string,
+         name: sup?.name || "Unknown Supervisor",
+         count: supComplaints.length,
+         resolved: supResolved.length,
+         rate,
+         avgTime: avgH > 24 ? `${(avgH/24).toFixed(1)}d` : `${Math.round(avgH)}h`,
+         avgHours: avgH
+       };
+    }).sort((a, b) => b.rate - a.rate || b.count - a.count) : [];
+
     // Insights
     const insights = [];
     if (role === 'client') {
@@ -150,12 +183,36 @@ export default function AnalyticsScreen() {
       if (pending > 3) insights.push({ type: 'alert', text: `${pending} tasks are pending. Consider prioritizing high-priority issues.` });
       if (completionRate < 70 && total > 5) insights.push({ type: 'warning', text: "Completion rate is below target. Try resolving pending tasks." });
       if (avgResHours > 48 && resCount > 0) insights.push({ type: 'warning', text: "Average resolution time is high. Check for blockers at slow sites." });
+      
+      // Top performing supervisor insight
+      if (supervisorPerformance.length > 0 && supervisorPerformance[0].rate > 90) {
+        insights.push({ type: 'success', text: `Shout out to ${supervisorPerformance[0].name} for maintaining a ${supervisorPerformance[0].rate}% resolution rate!` });
+      }
+
+      // Site-specific category spike detection (Founder Only)
+      siteMetrics.slice(0, 3).forEach(sm => {
+        if (sm.count >= 3) {
+          const siteComplaints = filteredComplaints.filter(c => c.siteId === sm.id);
+          const categories: Record<string, number> = {};
+          siteComplaints.forEach(c => {
+            categories[c.category] = (categories[c.category] || 0) + 1;
+          });
+          
+          const topCat = Object.entries(categories).sort((a,b) => b[1] - a[1])[0];
+          if (topCat && topCat[1] >= sm.count * 0.5) {
+             insights.push({ 
+               type: 'warning', 
+               text: `${topCat[0]} issues are trending high (${Math.round((topCat[1]/sm.count)*100)}%) at ${sm.name}.` 
+             });
+          }
+        }
+      });
     }
     
     if (insights.length === 0) insights.push({ type: 'success', text: "Great job! Your performance metrics are looking healthy." });
 
-    return { total, resolvedCount: resolved.length, pending, inProgress, completionRate, avgResTimeStr, siteMetrics, insights, avgRating };
-  }, [filteredComplaints, allSites, role]);
+    return { total, resolvedCount: resolved.length, pending, inProgress, completionRate, avgResTimeStr, siteMetrics, supervisorPerformance, insights, avgRating };
+  }, [filteredComplaints, allSites, role, users]);
 
   // Donut Chart logic
   const donutSize = 140;
@@ -172,36 +229,47 @@ export default function AnalyticsScreen() {
   const ipStroke = circumference * ipPct;
   const rStroke = circumference * rPct;
 
-  // Bar Chart Logic (Last 7 Days Activity)
+  // Bar Chart Logic (Contextual aggregation)
   const chartWidth = width - 64;
   const chartHeight = 120;
   const barData = useMemo(() => {
-    const intervals = 7;
+    const isLongRange = dateFilter === 'Month' || dateFilter === '90 Days' || dateFilter === 'All Time';
+    const intervals = isLongRange ? 4 : 7; // 4 weeks or 7 days
     const now = new Date();
     const data = [];
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     
     for (let i = intervals - 1; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const dayStart = new Date(d.setHours(0,0,0,0));
-      const dayEnd = new Date(d.setHours(23,59,59,999));
+      const dStart = new Date(now);
+      const dEnd = new Date(now);
+      
+      if (isLongRange) {
+        // Weekly chunks
+        dStart.setDate(now.getDate() - (i + 1) * 7);
+        dEnd.setDate(now.getDate() - i * 7);
+      } else {
+        // Daily chunks
+        dStart.setDate(now.getDate() - i);
+        dStart.setHours(0,0,0,0);
+        dEnd.setDate(now.getDate() - i);
+        dEnd.setHours(23,59,59,999);
+      }
       
       const count = allComplaints.filter(c => 
         c.status === 'resolved' && 
         c.resolvedAt && 
-        new Date(c.resolvedAt) >= dayStart && 
-        new Date(c.resolvedAt) <= dayEnd
+        new Date(c.resolvedAt) >= dStart && 
+        new Date(c.resolvedAt) <= dEnd
       ).length;
       
       data.push({
-        label: dayNames[d.getDay()],
+        label: isLongRange ? `W${intervals - i}` : dayNames[dStart.getDay()],
         value: count,
-        isToday: i === 0
+        isToday: i === 0 && !isLongRange
       });
     }
     return data;
-  }, [allComplaints]);
+  }, [allComplaints, dateFilter]);
 
   const maxVal = Math.max(...barData.map(d => d.value), 1);
 
@@ -240,8 +308,13 @@ export default function AnalyticsScreen() {
         />
 
         {/* Date Filter */}
-        <View style={styles.filterRow}>
-           {(['Today', 'Week', 'Month'] as const).map((filter) => (
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          contentContainerStyle={styles.filterRow}
+          style={{ marginBottom: 24 }}
+        >
+           {(['Today', 'Week', 'Month', '90 Days', 'All Time'] as const).map((filter) => (
              <Pressable 
                key={filter} 
                onPress={() => setDateFilter(filter)}
@@ -250,7 +323,7 @@ export default function AnalyticsScreen() {
                <Text style={[styles.filterText, dateFilter === filter && styles.filterTextActive]}>{filter}</Text>
              </Pressable>
            ))}
-        </View>
+        </ScrollView>
 
         {/* KPI Grid */}
         <View style={styles.kpiGrid}>
@@ -395,6 +468,45 @@ export default function AnalyticsScreen() {
            </View>
         </View>
 
+        {/* Supervisor Leaderboard (Founder Only) */}
+        {role !== 'client' && stats.supervisorPerformance.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.chartHeaderRow}>
+               <Text style={styles.sectionTitle}>SUPERVISOR EFFICIENCY</Text>
+               <Pressable 
+                 style={styles.exportBtn}
+                 onPress={async () => {
+                   try {
+                     const success = await ExportService.exportComplaintsToCSV(filteredComplaints);
+                     if (success) {
+                       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                     }
+                   } catch (err) {
+                     console.error("Export failed:", err);
+                     Alert.alert("Export Error", "Failed to generate CSV report. Please try again.");
+                   }
+                 }}
+               >
+                 <Feather name="download" size={12} color={isDark ? "#818CF8" : "#4F46E5"} />
+                 <Text style={styles.exportBtnText}>EXPORT CSV</Text>
+               </Pressable>
+            </View>
+            <SoftCard style={styles.listCard}>
+              {stats.supervisorPerformance.map((sup, i) => (
+                <View key={sup.id} style={[styles.listItem, i !== stats.supervisorPerformance.length - 1 && styles.borderBottom]}>
+                  <View style={styles.listTextContainer}>
+                    <Text style={styles.listName}>{sup.name}</Text>
+                    <Text style={styles.listSub}>{sup.resolved}/{sup.count} tasks resolved</Text>
+                  </View>
+                  <View style={[styles.listMetric, { backgroundColor: sup.rate >= 90 ? 'rgba(16, 185, 129, 0.1)' : (sup.rate >= 70 ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)') }]}>
+                     <Text style={[styles.metricText, { color: sup.rate >= 90 ? '#10B981' : (sup.rate >= 70 ? '#F59E0B' : '#EF4444') }]}>{sup.rate}%</Text>
+                  </View>
+                </View>
+              ))}
+            </SoftCard>
+          </View>
+        )}
+
         {/* Site Performance List */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{role === 'client' ? "LOCATIONS COVERED" : "SITES HANDLED"}</Text>
@@ -506,7 +618,7 @@ const getStyles = (isDark: boolean, width: number) => StyleSheet.create({
   title: { fontSize: 28, fontFamily: 'Inter_900Black', color: isDark ? Colors.dark.text : '#111827' },
   subtitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: isDark ? Colors.dark.textSub : '#6B7280', marginTop: 4 },
   
-  filterRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginBottom: 24 },
+  filterRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 24 },
   filterPill: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 100, backgroundColor: isDark ? Colors.dark.surfaceElevated : 'white', borderWidth: 1, borderColor: isDark ? Colors.dark.border : '#F3F4F6' },
   filterPillActive: { backgroundColor: isDark ? Colors.dark.accent : '#111827', borderColor: isDark ? Colors.dark.accent : '#111827' },
   filterText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: isDark ? Colors.dark.textSub : '#6B7280' },
@@ -520,6 +632,8 @@ const getStyles = (isDark: boolean, width: number) => StyleSheet.create({
   
   section: { paddingHorizontal: 24, marginBottom: 32 },
   sectionTitle: { fontSize: 11, fontFamily: 'Inter_800ExtraBold', color: isDark ? Colors.dark.textMuted : '#9CA3AF', letterSpacing: 1.5, marginBottom: 12, marginLeft: 4 },
+  exportBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: isDark ? 'rgba(129, 140, 248, 0.1)' : '#EEF2FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, marginBottom: 8 },
+  exportBtnText: { fontSize: 11, fontFamily: 'Inter_800ExtraBold', color: isDark ? '#818CF8' : '#4F46E5' },
   
   chartCardLarge: { padding: 24, borderRadius: 32, gap: 20 },
   chartHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },

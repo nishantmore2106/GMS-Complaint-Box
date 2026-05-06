@@ -7,6 +7,7 @@ import { Colors } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { ComplaintCard } from '@/components/ComplaintCard';
 import * as Haptics from 'expo-haptics';
+import { APP_CONFIG } from '@/constants/config';
 import { useToast } from '@/components/Toast';
 import { SoftCard } from '@/components/SoftCard';
 import { SoftButton } from '@/components/SoftButton';
@@ -317,7 +318,7 @@ export default function SiteDetailScreen() {
                 <View style={styles.qrContentWrapper}>
                    <View style={styles.qrImageFrame}>
                       <Image 
-                         source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://gms-complaint-box.netlify.app/public/scan/${site.id}` }} 
+                         source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${APP_CONFIG.SYSTEM.PUBLIC_PORTAL_URL}/public/scan/${site.id}` }} 
                          style={styles.qrImage}
                       />
                    </View>
@@ -327,7 +328,7 @@ export default function SiteDetailScreen() {
                       <Pressable 
                          style={[styles.qrShareBtn, isDarkMode && { backgroundColor: Colors.dark.surfaceElevated }]}
                          onPress={() => {
-                            const url = `https://gms-complaint-box.netlify.app/public/scan/${site.id}`;
+                            const url = `${APP_CONFIG.SYSTEM.PUBLIC_PORTAL_URL}/public/scan/${site.id}`;
                             Share.share({
                                message: `GMS Facility QR Desk: ${site.name}. Scan here to report cleaning or behavior issues: ${url}`,
                                url: url

@@ -79,27 +79,28 @@ const styles = StyleSheet.create({
   elevated: {
     ...Platform.select({
       ios: {
-        shadowColor: '#146A65',
-        shadowOffset: { width: 0, height: 12 },
+        shadowColor: '#1E293B',
+        shadowOffset: { width: 0, height: 20 },
         shadowOpacity: 0.08,
-        shadowRadius: 24,
+        shadowRadius: 30,
       },
       android: {
-        elevation: 6,
+        elevation: 10,
       },
       web: {
-        boxShadow: `0px 12px 24px rgba(20, 106, 101, 0.06)`,
+        boxShadow: `0px 20px 40px rgba(30, 41, 59, 0.06)`,
       }
     }),
   },
   glass: {
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.5)',
   },
   darkGlass: {
-    backgroundColor: Colors.dark.glass,
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderWidth: 1,
-    borderColor: Colors.dark.glassBorder,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   }
 });
+

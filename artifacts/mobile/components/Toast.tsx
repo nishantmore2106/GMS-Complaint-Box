@@ -18,13 +18,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
 
   const showToast = useCallback((message: string, type: ToastType = 'success') => {
+    fadeAnim.stopAnimation();
+    fadeAnim.setValue(0);
     setToast({ message, type });
+    
     Animated.sequence([
       Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
       Animated.delay(2800),
       Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true })
-    ]).start(() => setToast(null));
-  }, []);
+    ]).start(() => {
+      setToast(prev => (prev?.message === message ? null : prev));
+    });
+  }, [fadeAnim]);
 
   const getIcon = (type: ToastType) => {
     switch (type) {
